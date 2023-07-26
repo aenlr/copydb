@@ -1,0 +1,24 @@
+#!/bin/sh
+
+BASEDIR=$(cd "$(dirname "$0")/.."; pwd)
+if [ -z "$JAVA" ]; then
+    if [ -n "$JAVA_HOME" ]; then
+        JAVA="$JAVA_HOME/bin/java"
+    else
+        JAVA=java
+    fi
+fi
+
+if [ -d "$BASEDIR/target" ]; then
+    CLASSPATH="$BASEDIR/target/copydb.jar:$BASEDIR/target/lib/*"
+else
+    CLASSPATH="$BASEDIR/lib/*"
+fi
+
+case "$OSTYPE" in
+    cygwin | msys) CLASSPATH=$(cygpath -m -p "$CLASSPATH");;
+esac
+
+echo "$CLASSPATH"
+
+exec "$JAVA" $JAVA_OPTS -cp "$CLASSPATH" copydb.CopyDbCli "$@"
