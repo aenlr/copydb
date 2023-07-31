@@ -7,3 +7,6 @@ target/
 .vscode/
 /*.db
 copydb.properties
+secrets.properties
+*.local*
+changelog*.*
