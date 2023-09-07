@@ -294,13 +294,35 @@ public class CopyDbCli {
 
             var parser = new ArgParser(args);
             while (parser.hasNext()) {
-                if (parser.arg("properties")) {
+                if (parser.arg("properties") || parser.arg("config")) {
                     try (var is = Files.newInputStream(Paths.get(parser.val))) {
                         commandLineArgs.load(is);
                     }
-                } else if (parser.arg("source")) {
+                } else if (parser.current().startsWith("-P")) {
+                    var filename = parser.next().substring(2);
+                    if (filename.isEmpty()) {
+                        if (!parser.hasNext()) {
+                            throw new CliException("-P requires an argument");
+                        }
+                        filename = parser.next();
+                    }
+                    try (var is = Files.newInputStream(Paths.get(filename))) {
+                        commandLineArgs.load(is);
+                    }
+                } else if (parser.current().startsWith("-D")) {
+                    var prop = parser.next().substring(2);
+                    if (prop.isEmpty()) {
+                        if (!parser.hasNext()) {
+                            throw new CliException("-D requires an argument");
+                        }
+                        prop = parser.next();
+                    }
+                    var kv = prop.split("=", 2);
+                    var val = kv.length == 2 ? kv[1] : "";
+                    commandLineArgs.put(kv[0], val);
+                } else if (parser.arg("source") || parser.arg("source-url")) {
                     commandLineArgs.put("source.url", parser.val);
-                } else if (parser.arg("target")) {
+                } else if (parser.arg("target") || parser.arg("target-url")) {
                     commandLineArgs.put("target.url", parser.val);
                 } else if (parser.arg("source-user") || parser.arg("source-username")) {
                     commandLineArgs.put("source.username", parser.val);
