@@ -399,7 +399,7 @@ public class CopyDbCli {
                 } else if (parser.arg("label-filter") || parser.arg("contexts") || parser.arg("tag")) {
                     commandLineArgs.put(parser.opt, parser.val);
                 } else if (parser.arg("context")) {
-                    commandLineArgs.put("context", parser.val);
+                    commandLineArgs.put("contexts", parser.val);
                 } else if (parser.arg("labels") || parser.arg("label")) {
                     commandLineArgs.put("label-filter", parser.val);
                 } else if (parser.flag("disable-foreign-keys") || parser.flag("disable-foreign-key")
