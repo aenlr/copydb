@@ -97,6 +97,7 @@ public class CopyDb {
     private boolean dropFirst;
     private boolean truncate;
     private boolean disableForeignKeys = true;
+    private boolean disableTriggers = true;
     private boolean logSql = true;
     private int batchSize = 500;
     private String tag;
@@ -132,6 +133,7 @@ public class CopyDb {
         truncate = parseBoolean(config.getProperty("truncate"), truncate);
         dropFirst = parseBoolean(config.getProperty("drop-first"), dropFirst);
         disableForeignKeys = parseBoolean(config.getProperty("disable-foreign-keys"), disableForeignKeys);
+        disableTriggers = parseBoolean(config.getProperty("disable-triggers"), disableTriggers);
         tables.load(config, "tables.");
         sequences.load(config, "sequences.");
 
@@ -297,6 +299,7 @@ public class CopyDb {
             runSql(targetDb, initSql);
 
             if (dropFirst) {
+                // TODO: drop triggers
                 var liquibase = new Liquibase((DatabaseChangeLog)null, resourceAccessor, targetDb);
                 liquibase.dropAll();
             }
@@ -575,6 +578,10 @@ public class CopyDb {
 
         tables.sort(targetTables, Table::getName);
 
+        if (disableTriggers) {
+            toggleTriggers(targetSnapshot, false);
+        }
+
         if (disableForeignKeys) {
             toggleForeignKeys(targetSnapshot, false);
         }
@@ -600,11 +607,24 @@ public class CopyDb {
                     e.addSuppressed(nested);
                 }
             }
+
+            if (disableTriggers) {
+                try {
+                    toggleTriggers(targetSnapshot, true);
+                } catch (Exception nested) {
+                    e.addSuppressed(nested);
+                }
+            }
+
             throw e;
         }
 
         if (disableForeignKeys) {
             toggleForeignKeys(targetSnapshot, true);
+        }
+
+        if (disableForeignKeys) {
+            toggleTriggers(targetSnapshot, true);
         }
     }
 
@@ -791,6 +811,31 @@ public class CopyDb {
             db.execute(stmts.toArray(SqlStatement[]::new), List.of());
             db.commit();
         });
+    }
+
+    private void toggleTriggers(DatabaseSnapshot snapshot, boolean enable) throws LiquibaseException {
+        // TODO: keep track of triggers that were disabled
+        List<SqlStatement> stmts = new ArrayList<>();
+        var db = snapshot.getDatabase();
+        if ("oracle".equals(db.getShortName())) {
+            String ddl = """
+                    BEGIN
+                        FOR r_trigger IN (SELECT TRIGGER_NAME FROM USER_TRIGGERS)
+                        LOOP
+                            EXECUTE IMMEDIATE ('ALTER TRIGGER ' || r_trigger.TRIGGER_NAME || ' %s');
+                        END LOOP;
+                    END;
+                    """.formatted(enable ? "ENABLE" : "DISABLE");
+            stmts.add(new RawSqlStatement(ddl));
+        }
+
+        if (!stmts.isEmpty()) {
+            LOG.info("Will {} triggers in {}", enable ? "enable" : "disable", db);
+            withoutSqlLogging(() -> {
+                db.execute(stmts.toArray(SqlStatement[]::new), List.of());
+                db.commit();
+            });
+        }
     }
 
     private void runChangelog(Database targetDb) throws LiquibaseException {

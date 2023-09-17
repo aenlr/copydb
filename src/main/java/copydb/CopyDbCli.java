@@ -244,6 +244,8 @@ public class CopyDbCli {
 
             General
               --properties=FILE       load settings from properties file
+              --disable-triggers      disable triggers during copy (default: true)
+                                      [COPYDB_DISABLE_TRIGGERS]
 
             Defaults are loaded from:
             - $COPYDB_CONFIG (or system property copydb.config)
@@ -406,6 +408,9 @@ public class CopyDbCli {
                            || parser.flag("disable-fks") || parser.flag("disable-fk")
                            || parser.flag("disable-foreignkeys") || parser.flag("disable-foreignkey")) {
                     commandLineArgs.put("disable-foreign-keys", Boolean.toString(parser.flag));
+                } else if (parser.flag("disable-triggers") || parser.flag("disable-trigger")
+                    || parser.flag("no-triggers") || parser.flag("no-trigger")) {
+                    commandLineArgs.put("disable-triggers", Boolean.toString(parser.flag));
                 } else if (parser.arg("init-sql") || parser.arg("post-sql") || parser.arg("pre-copy-sql")) {
                     commandLineArgs.put(parser.opt, parser.val);
                 } else if (parser.current().startsWith("-u")) {
