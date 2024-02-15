@@ -21,7 +21,7 @@
             <outputDirectory>lib</outputDirectory>
             <fileMode>0444</fileMode>
             <includes>
-                <include>copydb.jar</include>
+                <include>${project.artifactId}-${project.version}.jar</include>
             </includes>
         </fileSet>
         <fileSet>
