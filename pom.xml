@@ -10,7 +10,7 @@
     <packaging>jar</packaging>
 
     <properties>
-        <revision>1.0.0</revision>
+        <revision>1.1.0</revision>
         <changelist>-SNAPSHOT</changelist>
 
         <java.version>17</java.version>
@@ -21,17 +21,17 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
 
-        <slf4j.version>2.0.7</slf4j.version>
+        <slf4j.version>2.0.13</slf4j.version>
 
         <!-- JDBC drivers -->
-        <h2.version>2.1.214</h2.version>
-        <liquibase.version>4.20.0</liquibase.version>
-        <mariadb.version>3.1.4</mariadb.version>
+        <h2.version>2.2.224</h2.version>
+        <liquibase.version>4.24.0</liquibase.version>
+        <mariadb.version>3.3.3</mariadb.version>
         <mssql-jdbc.version>11.2.3.jre17</mssql-jdbc.version>
-        <mysql.version>8.0.33</mysql.version>
+        <mysql.version>8.3.0</mysql.version>
         <oracle.version>21.1.0.0</oracle.version>
-        <postgresql.version>42.6.0</postgresql.version>
-        <sqlite-jdbc.version>3.41.2.2</sqlite-jdbc.version>
+        <postgresql.version>42.7.3</postgresql.version>
+        <sqlite-jdbc.version>3.45.3.0</sqlite-jdbc.version>
     </properties>
 
     <dependencies>
