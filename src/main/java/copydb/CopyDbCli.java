@@ -171,10 +171,27 @@ public class CopyDbCli {
         return files;
     }
 
+    static String getVersion() {
+        try (var is = CopyDbCli.class.getResourceAsStream("/META-INF/maven/com.github.aenlr/copydb/pom.properties")) {
+            if (is != null) {
+                var props = new Properties();
+                props.load(is);
+                return props.getProperty("version", "unknown");
+            }
+        } catch (IOException ignored) {
+        }
+        return "unknown";
+    }
+
     static void help(PrintStream os) {
-        os.println("""
+        var version = getVersion();
+        os.printf("""
             Syntax: copydb [OPTIONS]
 
+            Version: %s
+            """, version);
+
+        os.println("""
             Examples:
             # Copy between two H2 databases, initializing target with liquibase.
             copydb --changelog=changelog.xml --truncate \\
@@ -322,6 +339,9 @@ public class CopyDbCli {
                     var kv = prop.split("=", 2);
                     var val = kv.length == 2 ? kv[1] : "";
                     commandLineArgs.put(kv[0], val);
+                } else if (parser.flag("version")) {
+                    System.out.println(getVersion());
+                    return;
                 } else if (parser.arg("source") || parser.arg("source-url")) {
                     commandLineArgs.put("source.url", parser.val);
                 } else if (parser.arg("target") || parser.arg("target-url")) {
