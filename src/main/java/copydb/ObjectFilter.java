@@ -75,6 +75,32 @@ public class ObjectFilter {
         return (include.isEmpty() && !exclude.contains("*")) || include.contains("*");
     }
 
+    public boolean contains(String parent, String k) {
+        String wildcardParent = "*." + k;
+        String specificParent = parent + "." + k;
+        if (include.contains(specificParent)) {
+            return true;
+        }
+
+        if (exclude.contains(specificParent)) {
+            return false;
+        }
+
+        if (include.contains(wildcardParent) || include.contains(k)) {
+            return true;
+        }
+
+        if (exclude.contains(wildcardParent) || exclude.contains(k)) {
+            return false;
+        }
+
+        if (include.isEmpty()) {
+            return !exclude.contains("*") && !exclude.contains(parent + ".*");
+        } else {
+            return include.contains("*") || include.contains(parent + ".*");
+        }
+    }
+
     public <T> void sort(List<T> list, Function<T, String> keyExtractor) {
         if (order.isEmpty()) {
             return;

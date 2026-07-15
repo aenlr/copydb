@@ -43,8 +43,9 @@ public class CopyDbCli {
 
         boolean arg(String name) throws CliException {
             opt = args[idx];
-            String dashName = "--" + name;
-            if (dashName.equals(opt)) {
+            String dashName = "-" + name;
+            String ddashName = "-" + dashName;
+            if (dashName.equals(opt) || ddashName.equals(opt)) {
                 if (idx + 1 == args.length) {
                     throw new CliException(opt + ": argument required");
                 }
@@ -52,8 +53,8 @@ public class CopyDbCli {
                 idx += 2;
                 opt = name;
                 return true;
-            } else if (opt.startsWith(dashName + "=")) {
-                val = opt.substring(dashName.length() + 1);
+            } else if (opt.startsWith(ddashName + "=")) {
+                val = opt.substring(ddashName.length() + 1);
                 idx++;
                 opt = name;
                 return true;
@@ -72,7 +73,8 @@ public class CopyDbCli {
             }
 
             String dashName = "--" + name;
-            if (dashName.equals(opt)) {
+            String ddashName = "-" + dashName;
+            if (dashName.equals(opt) || ddashName.equals(opt)) {
                 opt = name;
                 if (idx + 1 < args.length) {
                     val = args[idx + 1].toLowerCase();
@@ -87,8 +89,8 @@ public class CopyDbCli {
                 flag = !invert;
                 idx++;
                 return true;
-            } else if (opt.startsWith(dashName + "=")) {
-                val = opt.substring(dashName.length() + 1);
+            } else if (opt.startsWith(ddashName + "=")) {
+                val = opt.substring(ddashName.length() + 1);
                 opt = name;
                 var b = parseBoolean(val);
                 if (b.isEmpty()) {
@@ -248,6 +250,9 @@ public class CopyDbCli {
               -t, --include=T1[,T2..] copy specific tables [COPYDB_TABLES_INCLUDE]
               -x, --exclude=T1[,T2..] exclude tables [COPYDB_TABLES_EXCLUDE]
                   --exclude-changelog exclude changelog tables
+              -c, --column=T.C[,...]  include columns [COPYDB_COLUMNS_INCLUDE]
+              -xc                     exclude columns [COPYDB_COLUMNS_EXCLUDE]
+              --exclude-column=T.C[,...]
               --truncate              truncate target database tables [COPYDB_TRUNCATE]
               --disable-foreign-keys  disable foreign keys during copy (default: true)
                                       [COPYDB_DISABLE_FOREIGN_KEYS]
@@ -256,7 +261,7 @@ public class CopyDbCli {
               --copy-sequences        enable copying of sequences [COPYDB_SEQUENCES_ENABLED]
               -s, --seq S1[,S2]       copy specific sequences [COPYDB_SEQUENCES_INCLUDE]
                   --sequence S1[,S2]
-              --ex-seq S1             exclude sequences [COPYDB_SEQUENCES_EXCLUDE]
+              -xs S1                  exclude sequences [COPYDB_SEQUENCES_EXCLUDE]
               --exclude-sequence S
 
             General
@@ -272,6 +277,55 @@ public class CopyDbCli {
             - $APPDATA/copydb/copydb.properties (windows)
             - $APPDATA/copydb/secrets.properties (windows)
             """);
+    }
+
+    private static List<String> parseColumnList(String s) {
+        if (s == null || s.isBlank()) {
+            return List.of();
+        }
+
+        List<String> cols = new ArrayList<>();
+        int len = s.length();
+        int start = 0;
+        for (int i = 0; i < len; i++) {
+            char c = s.charAt(i);
+            if (c == ',' || Character.isWhitespace(c)) {
+                if (i > start) {
+                    String col = s.substring(start, i);
+                    cols.add(col);
+                }
+                start = i + 1;
+                continue;
+            }
+
+            if (c == '.' && i + 1 < len && s.charAt(i + 1) == '{') {
+                String prefix = s.substring(start, i + 1);
+                i += 2;
+                while (i < len && Character.isWhitespace(s.charAt(i))) {
+                    i++;
+                }
+                start = i;
+                while (i < len && s.charAt(i) != '}') {
+                    i++;
+                }
+                int right = i;
+                while (right > start && Character.isWhitespace(s.charAt(right - 1))) {
+                    right--;
+                }
+                for (String col : s.substring(start, right).split("\\s*,\\s*")) {
+                    if (!col.isEmpty()) {
+                        cols.add(prefix + col);
+                    }
+                }
+                start = i + 1;
+            }
+        }
+
+        if (start < len) {
+            cols.add(s.substring(start, len));
+        }
+
+        return cols;
     }
 
     public static void main(String[] args) throws Exception {
@@ -354,6 +408,31 @@ public class CopyDbCli {
                     commandLineArgs.put("target.username", parser.val);
                 } else if (parser.arg("target-pass") || parser.arg("target-password")) {
                     commandLineArgs.put("target.password", parser.val);
+                } else if (parser.current().startsWith("-c")) {
+                    String opt = parser.next();
+                    if (opt.length() == 2) {
+                        if (!parser.hasNext()) {
+                            throw new CliException("-c requires an argument");
+                        }
+                        opt = parser.next();
+                    } else {
+                        opt = opt.substring(2);
+                    }
+
+                    var l = new ArrayList<>(StringUtil.parseList(commandLineArgs.getProperty("columns.include")));
+                    l.addAll(parseColumnList(opt));
+                    commandLineArgs.put("columns.include", String.join(",", l));
+                } else if (parser.arg("column") || parser.arg("columns") || parser.arg("col")) {
+                    var l = new ArrayList<>(StringUtil.parseList(commandLineArgs.getProperty("columns.include")));
+                    l.addAll(parseColumnList(parser.val));
+                    commandLineArgs.put("columns.include", String.join(",", l));
+                } else if (parser.arg("exclude-column") || parser.arg("exclude-columns")
+                    || parser.arg("exclude-col") || parser.arg("xcol") || parser.arg("xc")
+                    || parser.arg("excol") || parser.arg("ex-col")) {
+                    var l = new ArrayList<>(StringUtil.parseList(commandLineArgs.getProperty("columns.exclude")));
+                    l.addAll(parseColumnList(parser.val));
+                    commandLineArgs.put("columns.exclude", String.join(",", l));
+                    commandLineArgs.put("columns.enabled", "true");
                 } else if (parser.arg("table") || parser.arg("tables") || parser.arg("include") || parser.arg("include-table") || parser.arg("include-tables")) {
                     var l = new ArrayList<>(StringUtil.parseList(commandLineArgs.getProperty("tables.include")));
                     l.add(parser.val);
@@ -402,7 +481,7 @@ public class CopyDbCli {
                     commandLineArgs.put("sequences.include", String.join(",", l));
                     commandLineArgs.put("sequences.enabled", "true");
                 } else if (parser.arg("exclude-sequence") || parser.arg("exclude-sequences")
-                           || parser.arg("exclude-seq") || parser.arg("xseq")
+                           || parser.arg("exclude-seq") || parser.arg("xseq") || parser.arg("xs")
                            || parser.arg("exseq") || parser.arg("ex-seq")) {
                     var l = new ArrayList<>(StringUtil.parseList(commandLineArgs.getProperty("sequences.exclude")));
                     l.add(parser.val);
@@ -416,6 +495,8 @@ public class CopyDbCli {
                     commandLineArgs.put("batch-size", parser.val);
                 } else if (parser.arg("changelog") || parser.arg("changelog-file")) {
                     commandLineArgs.put("changelog", parser.val);
+                } else if (parser.arg("classpath") || parser.arg("class-path") || parser.arg("cp")) {
+                    commandLineArgs.put("classpath", parser.val);
                 } else if (parser.arg("search-path")) {
                     commandLineArgs.put("search-path", parser.val);
                 } else if (parser.arg("label-filter") || parser.arg("contexts") || parser.arg("tag")) {
