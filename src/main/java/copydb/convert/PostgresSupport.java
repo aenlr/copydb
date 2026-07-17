@@ -58,6 +58,10 @@ public final class PostgresSupport extends GenericDatabaseSupport {
             return writer;
         }
 
+        if ("oid".equals(targetType) || "blob".equals(targetType) || "lo".equals(targetType)) {
+            return new BlobWriter();
+        }
+
         return super.writerFor(target, targetColumn);
     }
 
