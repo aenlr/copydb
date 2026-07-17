@@ -1,5 +1,7 @@
 package copydb;
 
+import copydb.convert.ColumnDescriptor;
+import copydb.convert.Converters;
 import liquibase.CatalogAndSchema;
 import liquibase.Contexts;
 import liquibase.LabelExpression;
@@ -53,7 +55,6 @@ import liquibase.structure.core.Table;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.math.BigInteger;
@@ -64,14 +65,9 @@ import java.net.URLClassLoader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.sql.Blob;
-import java.sql.Clob;
 import java.sql.SQLException;
-import java.sql.Timestamp;
-import java.time.temporal.Temporal;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -645,10 +641,6 @@ public class CopyDb {
         }
     }
 
-    private static final Set<String> TIMESTAMP_TYPES = Set.of(
-        "oracle.sql.TIMESTAMP"
-    );
-
     private static boolean isOracleVirtualColumn(Column c) {
         if (c.getComputed() != null) {
             return false;
@@ -659,8 +651,11 @@ public class CopyDb {
             && func.getValue().startsWith("GENERATED ALWAYS AS ");
     }
 
-    private List<Column> filterTargetColumns(Database database, Table table) {
-        var columns = table.getColumns();
+    private List<Column> filterTargetColumns(Database database, Table table, Table sourceTable) {
+        var columns = table.getColumns().stream()
+            .filter(c -> sourceTable.getColumn(c.getName()) != null)
+            .toList();
+
         if ("oracle".equals(database.getShortName())) {
             // Filter out virtual columns
             columns = columns.stream()
@@ -681,13 +676,23 @@ public class CopyDb {
                            Database target, Table targetTable) throws LiquibaseException {
         PreparedStatementFactory sourceStmtFactory = new PreparedStatementFactory((JdbcConnection) source.getConnection());
         PreparedStatementFactory targetStmtFactory = new PreparedStatementFactory((JdbcConnection) target.getConnection());
-        boolean crossVendor = !target.getShortName().equals(source.getShortName());
 
-        var columns = filterTargetColumns(target, targetTable);
+        var columns = filterTargetColumns(target, targetTable, sourceTable);
         final var insertSql = insertSqlForTable(targetTable, columns);
         if (logSql) {
             SQL_LOG.info("{}", insertSql);
         }
+
+        var converters = new ArrayList<ColumnDescriptor<?, ?>>(columns.size());
+        StringBuilder sb = new StringBuilder();
+        sb.append("TABLE ").append(targetTable.getName()).append('\n');
+        for (var targetColumn : columns) {
+            var sourceColumn = sourceTable.getColumn(targetColumn.getName());
+            var converter = Converters.converterFor(source, sourceColumn, target, targetColumn);
+            sb.append("  ").append(converter).append('\n');
+            converters.add(converter);
+        }
+        LOG.debug(sb.toString());
 
         try (var count = sourceStmtFactory.create("SELECT COUNT(*) FROM " + sourceTable.getName());
              var select = sourceStmtFactory.create("SELECT * FROM " + sourceTable.getName());
@@ -702,65 +707,11 @@ public class CopyDb {
             int rowsInBatch = 0;
             long row = 0;
             while (rs.next()) {
-                for (var i = 0; i < columns.size(); i++) {
-                    var c = columns.get(i);
-                    var val = rs.getObject(c.getName());
-                    if (val == null) {
-                        insert.setObject(i + 1, null);
-                        continue;
-                    }
-
-                    if (val instanceof Clob clob) {
-                        StringBuilder sb = new StringBuilder();
-                        try (var reader = clob.getCharacterStream()) {
-                            char[] buf = new char[4096];
-                            int n;
-                            while ((n = reader.read(buf)) > 0) {
-                                sb.append(buf, 0, n);
-                            }
-                        } catch (IOException e) {
-                            throw new DatabaseException(e);
-                        }
-
-                        val = sb.toString();
-                    } else if (val instanceof Blob blob) {
-                        ByteArrayOutputStream os = new ByteArrayOutputStream();
-                        try (var is = blob.getBinaryStream()) {
-                            byte[] buf = new byte[4096];
-                            int n;
-                            while ((n = is.read(buf)) > 0) {
-                                os.write(buf, 0, n);
-                            }
-                        } catch (IOException e) {
-                            throw new DatabaseException(e);
-                        }
-                        val = os.toByteArray();
-                    } else if (crossVendor) {
-                        if (TIMESTAMP_TYPES.contains(val.getClass().getName())) {
-                            val = Timestamp.valueOf(val.toString());
-                        } else if (val instanceof Number n && "bool".equals(c.getType().getTypeName())) {
-                            val = n.longValue() != 0;
-                        } else if (val instanceof Timestamp ts) {
-                            if (ts.getClass() != Timestamp.class) {
-                                var tmp = new Timestamp(ts.getTime());
-                                tmp.setNanos(ts.getNanos());
-                                val = tmp;
-                            }
-                        } else if (val instanceof Date d && d.getClass() != Date.class) {
-                            val = new Date(d.getTime());
-                        } else if (!(val instanceof String
-                            || val instanceof Number
-                            || val instanceof Character
-                            || val instanceof Date
-                            || val instanceof Temporal
-                            || val instanceof Boolean
-                            || val instanceof byte[]
-                            || val instanceof char[])) {
-                            val = val.toString();
-                        }
-                    }
-                    insert.setObject(i + 1, val);
+                for (var i = 0; i < converters.size(); i++) {
+                    var conv = converters.get(i);
+                    conv.copy(rs, insert, i + 1);
                 }
+
                 row++;
                 insert.addBatch();
                 if (++rowsInBatch == batchSize) {
