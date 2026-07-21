@@ -194,24 +194,6 @@ public class CopyDbCli {
             """, version);
 
         os.println("""
-            Examples:
-            # Copy between two H2 databases, initializing target with liquibase.
-            copydb --changelog=changelog.xml --truncate \\
-              -u sa -p sa jdbc:h2:~/one \\
-              -u sa -p sa jdbc:h2:~/two
-
-            # Copy specified tables and sequences.
-            # Same credentials for source and target
-            copydb --truncate --tables footab,bartab --sequences fooseq,barseq \\
-              -u sa -p sa jdbc:h2:~/one jdbc:h2:~/two
-
-            # Copy between Oracle and H2 databases, initializing target with liquibase.
-            # Passwords are read from environment variables.
-            export COPYDB_SOURCE_PASSWORD=...
-            export COPYDB_TARGET_PASSWORD=...
-            copydb --changelog=changelog.xml --truncate \\
-              -u ORAUSER jdbc:oracle:thin:@DBNAME -u H2USER jdbc:h2:~/two
-
             Connection:
               --source=URL            source database JDBC URL [COPYDB_SOURCE_URL]
               --target=URL            target database JDBC URL [COPYDB_TARGET_URL]
