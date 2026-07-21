@@ -10,6 +10,7 @@ Drivers are included for
 - MySQL
 - PostgreSQL
 - SQLite
+- SQL Server
 
 ## Examples
 
