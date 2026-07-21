@@ -4,7 +4,7 @@ import liquibase.structure.core.Column;
 
 import java.util.UUID;
 
-class UUIDStringWriter implements ColumnWriter<String> {
+class UUIDStringWriter extends StringWriter {
 
     @Override
     public String convert(Column column, Object val) {

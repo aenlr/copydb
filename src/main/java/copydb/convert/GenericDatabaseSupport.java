@@ -39,6 +39,7 @@ public class GenericDatabaseSupport implements DatabaseSupport {
             WRITERS.put(k, NumberWriter.INSTANCE);
         }
 
+        WRITERS.put("BLOB", BlobWriter.INSTANCE);
         WRITERS.put("BINARY", ByteArrayWriter.INSTANCE);
         WRITERS.put("VARBINARY", ByteArrayWriter.INSTANCE);
         WRITERS.put("BINARY VARYING", ByteArrayWriter.INSTANCE);
@@ -63,20 +64,6 @@ public class GenericDatabaseSupport implements DatabaseSupport {
             || "CHARACTER".equals(typeName)
             || "CHARACTER VARYING".equals(typeName)
             || "TEXT".equalsIgnoreCase(typeName);
-    }
-
-    /**
-     * Test if type is a numeric type, including tests for specific
-     * DBMS (Oracle, PostgreSQL, MySQL/MariaDB)
-     */
-    static boolean isNumberType(Column column) {
-        DataType type = column.getType();
-        String name = type.getTypeName().toUpperCase(Locale.ROOT);
-        return STANDARD_NUMERIC_TYPES.contains(name)
-            || "NUMBER".equals(name)    // Oracle
-            || name.startsWith("INT")   // PostgreSQL int2, int4, int8
-            || name.endsWith("INT")     // TINYINT etc
-            ;
     }
 
     /**

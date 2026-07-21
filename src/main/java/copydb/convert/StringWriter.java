@@ -3,6 +3,7 @@ package copydb.convert;
 import liquibase.structure.core.Column;
 
 import java.sql.Clob;
+import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.util.UUID;
 
@@ -21,6 +22,13 @@ public class StringWriter implements ColumnWriter<String> {
         }
 
         throw new IllegalArgumentException("Cannot convert " + val + " to " + column);
+    }
+
+    @Override
+    public String write(Column target, Object val, PreparedStatement stmt, int param) throws SQLException {
+        String tgt = convert(target, val);
+        stmt.setString(param, tgt);
+        return tgt;
     }
 
     static final ColumnWriter<String> INSTANCE = new StringWriter();

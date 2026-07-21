@@ -7,6 +7,7 @@ import liquibase.structure.core.DataType;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.sql.Blob;
 import java.sql.Clob;
 import java.sql.SQLException;
@@ -59,6 +60,10 @@ public final class Converters {
             throw new SQLException("Failed to read BLOB", e);
         }
         return os.toByteArray();
+    }
+
+    public static byte[] extractBytes(Clob clob) throws SQLException {
+        return extractString(clob).getBytes(StandardCharsets.UTF_8);
     }
 
     public static String extractString(Clob clob) throws SQLException {

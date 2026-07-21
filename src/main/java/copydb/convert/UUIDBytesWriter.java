@@ -7,7 +7,7 @@ import java.sql.SQLException;
 import java.util.HexFormat;
 import java.util.UUID;
 
-public class UUIDBytesWriter implements ColumnWriter<byte[]> {
+public class UUIDBytesWriter extends ByteArrayWriter {
 
     @Override
     public byte[] convert(Column column, Object val) throws SQLException {
