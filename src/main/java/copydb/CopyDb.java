@@ -312,9 +312,10 @@ public class CopyDb {
             runSql(targetDb, initSql);
 
             if (dropFirst) {
-                // TODO: drop triggers
-                var liquibase = new Liquibase((DatabaseChangeLog) null, resourceAccessor, targetDb);
-                liquibase.dropAll();
+                try (var liquibase = new Liquibase((DatabaseChangeLog) null, resourceAccessor, targetDb)) {
+                    // TODO: drop triggers
+                    liquibase.dropAll();
+                }
             }
 
             if (resolvedChangelog != null) {
@@ -857,8 +858,9 @@ public class CopyDb {
     private void runChangelog(Database targetDb) throws Exception {
         var classLoader = createClassLoader(Thread.currentThread().getContextClassLoader());
         Scope.child(Scope.Attr.classLoader, classLoader, () -> {
-            var liquibase = new Liquibase(resolvedChangelog, resourceAccessor, targetDb);
-            liquibase.update(tag, new Contexts(contexts), new LabelExpression(labelFilter));
+            try (var liquibase = new Liquibase(resolvedChangelog, resourceAccessor, targetDb)) {
+                liquibase.update(tag, new Contexts(contexts), new LabelExpression(labelFilter));
+            }
             tableFilter.getExclude().addAll(Arrays.asList("DATABASECHANGELOG", "DATABASECHANGELOGLOCK"));
         });
     }

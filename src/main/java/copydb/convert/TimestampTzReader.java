@@ -25,8 +25,8 @@ public class TimestampTzReader implements ColumnReader<OffsetDateTime> {
         }
 
         if (val instanceof java.util.Date date) {
-            int ofs = date.getTimezoneOffset();
-            return Optional.of(date.toInstant().atOffset(ZoneOffset.ofHoursMinutes(ofs / 60, ofs % 60)));
+            var instant = date.toInstant();
+            return Optional.of(instant.atOffset(ZoneOffset.systemDefault().getRules().getOffset(instant)));
         } else if (val instanceof Instant ts) {
             return Optional.of(ts.atZone(ZoneOffset.systemDefault()).toOffsetDateTime());
         } else if (val instanceof LocalDateTime dt) {
@@ -34,9 +34,8 @@ public class TimestampTzReader implements ColumnReader<OffsetDateTime> {
         } else if (val instanceof ZonedDateTime dt) {
             return Optional.of(dt.toOffsetDateTime());
         } else if (WELL_KNOWN_TIMESTAMP_TYPES.contains(val.getClass().getName())) {
-            var ts = Timestamp.valueOf(val.toString());
-            int ofs = ts.getTimezoneOffset();
-            return Optional.of(ts.toInstant().atOffset(ZoneOffset.ofHoursMinutes(ofs / 60, ofs % 60)));
+            var instant = Timestamp.valueOf(val.toString()).toInstant();
+            return Optional.of(instant.atOffset(ZoneOffset.systemDefault().getRules().getOffset(instant)));
         } else if (val instanceof String s) {
             if (JDBC_TIMESTAMP_PATTERN.matcher(s).find()) {
                 s = s.replaceFirst(" ", "T");
