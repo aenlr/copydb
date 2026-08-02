@@ -33,5 +33,5 @@ public class UUIDBytesWriter extends ByteArrayWriter {
         throw new IllegalArgumentException("Cannot convert " + val + " to " + column);
     }
 
-    static final UUIDBytesWriter INSTANCE = new UUIDBytesWriter();
+    public static final UUIDBytesWriter INSTANCE = new UUIDBytesWriter();
 }

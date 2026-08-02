@@ -70,5 +70,5 @@ public class TimestampTzReader implements ColumnReader<OffsetDateTime> {
         return convert(column, rs.getTimestamp(column.getName()));
     }
 
-    static final ColumnReader<OffsetDateTime> INSTANCE = new TimestampTzReader();
+    public static final ColumnReader<OffsetDateTime> INSTANCE = new TimestampTzReader();
 }

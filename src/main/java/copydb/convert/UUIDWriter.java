@@ -23,5 +23,5 @@ public class UUIDWriter implements ColumnWriter<UUID> {
         return toUUID(val);
     }
 
-    static final UUIDWriter INSTANCE = new UUIDWriter();
+    public static final UUIDWriter INSTANCE = new UUIDWriter();
 }

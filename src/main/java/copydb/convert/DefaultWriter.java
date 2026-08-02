@@ -36,5 +36,5 @@ public class DefaultWriter implements ColumnWriter<Object> {
         return val;
     }
 
-    static final ColumnWriter<Object> INSTANCE = new DefaultWriter();
+    public static final ColumnWriter<Object> INSTANCE = new DefaultWriter();
 }

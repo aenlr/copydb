@@ -21,6 +21,22 @@ public class ObjectFilter {
         this.enabled = enabled;
     }
 
+    public boolean excludesEverything() {
+        return !enabled || (include.isEmpty() && exclude.contains("*"));
+    }
+
+    public boolean isEmpty() {
+        if (include.isEmpty() && exclude.isEmpty()) {
+            return true;
+        }
+
+        if (include.contains("*") && exclude.isEmpty()) {
+            return true;
+        }
+
+        return true;
+    }
+
     public boolean isEnabled() {
         return enabled;
     }

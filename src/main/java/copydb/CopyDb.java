@@ -2,54 +2,34 @@ package copydb;
 
 import copydb.convert.ColumnDescriptor;
 import copydb.convert.Converters;
+import copydb.db.DatabaseSupport;
+import copydb.db.Databases;
 import liquibase.CatalogAndSchema;
 import liquibase.Contexts;
 import liquibase.LabelExpression;
 import liquibase.Liquibase;
 import liquibase.Scope;
-import liquibase.Scope.ScopedRunner;
 import liquibase.Scope.ScopedRunnerWithReturn;
-import liquibase.change.core.AddUniqueConstraintChange;
-import liquibase.change.core.CreateIndexChange;
-import liquibase.change.core.CreateSequenceChange;
-import liquibase.change.core.CreateTableChange;
-import liquibase.changelog.ChangeLogParameters;
-import liquibase.changelog.ChangeSet;
-import liquibase.changelog.DatabaseChangeLog;
-import liquibase.command.CommandScope;
-import liquibase.command.core.GenerateChangelogCommandStep;
-import liquibase.command.core.helpers.DbUrlConnectionArgumentsCommandStep;
-import liquibase.command.core.helpers.PreCompareCommandStep;
 import liquibase.database.Database;
-import liquibase.database.DatabaseConnection;
 import liquibase.database.DatabaseFactory;
 import liquibase.database.PreparedStatementFactory;
 import liquibase.database.jvm.JdbcConnection;
-import liquibase.diff.compare.CompareControl;
-import liquibase.diff.compare.CompareControl.SchemaComparison;
 import liquibase.exception.DatabaseException;
 import liquibase.exception.LiquibaseException;
 import liquibase.listener.SqlListener;
-import liquibase.parser.ChangeLogParserFactory;
 import liquibase.resource.ClassLoaderResourceAccessor;
 import liquibase.resource.DirectoryResourceAccessor;
 import liquibase.resource.ResourceAccessor;
 import liquibase.resource.SearchPathResourceAccessor;
-import liquibase.serializer.core.xml.XMLChangeLogSerializer;
 import liquibase.snapshot.DatabaseSnapshot;
 import liquibase.snapshot.SnapshotControl;
 import liquibase.snapshot.SnapshotGeneratorFactory;
 import liquibase.statement.DatabaseFunction;
 import liquibase.statement.SqlStatement;
-import liquibase.statement.core.CreateSequenceStatement;
-import liquibase.statement.core.DropSequenceStatement;
 import liquibase.statement.core.RawParameterizedSqlStatement;
 import liquibase.structure.DatabaseObject;
-import liquibase.structure.core.Catalog;
 import liquibase.structure.core.Column;
-import liquibase.structure.core.DatabaseObjectFactory;
 import liquibase.structure.core.ForeignKey;
-import liquibase.structure.core.Schema;
 import liquibase.structure.core.Sequence;
 import liquibase.structure.core.Table;
 import org.slf4j.Logger;
@@ -57,23 +37,18 @@ import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
-import java.math.BigInteger;
 import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.file.Files;
-import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashSet;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -96,12 +71,17 @@ public class CopyDb {
     private final ObjectFilter tableFilter = new ObjectFilter(true);
     private final ObjectFilter sequenceFilter = new ObjectFilter(false);
     private final ObjectFilter columnFilter = new ObjectFilter(true);
+    private final ObjectFilter disableTriggerFilter = new ObjectFilter(false);
+    private Database targetDb;
+    private Database sourceDb;
+    private DatabaseSupport targetSupport;
+    private DatabaseSnapshot sourceSnapshot;
+    private DatabaseSnapshot targetSnapshot;
     private boolean dropFirst;
     private boolean truncate;
     private boolean disableForeignKeys = true;
-    private boolean disableTriggers = true;
     private boolean logSql = true;
-    private int batchSize = 500;
+    private int batchSize = 0;
     private String tag;
     private String contexts;
     private String labelFilter;
@@ -137,7 +117,7 @@ public class CopyDb {
         truncate = parseBoolean(config.getProperty("truncate"), truncate);
         dropFirst = parseBoolean(config.getProperty("drop-first"), dropFirst);
         disableForeignKeys = parseBoolean(config.getProperty("disable-foreign-keys"), disableForeignKeys);
-        disableTriggers = parseBoolean(config.getProperty("disable-triggers"), disableTriggers);
+        disableTriggerFilter.load(config, "disable-triggers.");
         tableFilter.load(config, "tables.");
         sequenceFilter.load(config, "sequences.");
         columnFilter.load(config, "columns.");
@@ -256,22 +236,18 @@ public class CopyDb {
                     resourceAccessor = new ClassLoaderResourceAccessor();
                 } else {
                     List<String> paths = new ArrayList<>();
-                    if ("auto".equals(changelog)) {
-                        resolvedChangelog = null;
+                    var path = (changelog.startsWith("file:") ? Paths.get(URI.create(changelog)) : Paths.get(changelog)).toAbsolutePath();
+                    var parent = path.getParent();
+                    if (parent != null && parent.endsWith("db/changelog")
+                        && Files.readString(path).matches("(?s).*(/?)db/changelog/.*")) {
+                        resolvedChangelog = "db/changelog/" + path.getFileName().toString();
+                        paths.add(parent.getParent().getParent().toString());
                     } else {
-                        var path = (changelog.startsWith("file:") ? Paths.get(URI.create(changelog)) : Paths.get(changelog)).toAbsolutePath();
-                        var parent = path.getParent();
-                        if (parent != null && parent.endsWith("db/changelog")
-                            && Files.readString(path).matches("(?s).*(/?)db/changelog/.*")) {
-                            resolvedChangelog = "db/changelog/" + path.getFileName().toString();
-                            paths.add(parent.getParent().getParent().toString());
-                        } else {
-                            resolvedChangelog = path.getFileName().toString();
-                            if (parent == null) {
-                                parent = Paths.get("").toAbsolutePath();
-                            }
-                            paths.add(parent.toString());
+                        resolvedChangelog = path.getFileName().toString();
+                        if (parent == null) {
+                            parent = Paths.get("").toAbsolutePath();
                         }
+                        paths.add(parent.toString());
                     }
                     paths.add(".");
                     resourceAccessor = new SearchPathResourceAccessor(String.join(",", paths));
@@ -294,46 +270,104 @@ public class CopyDb {
         }
     }
 
+    private Database openDatabase(JdbcProperties properties) throws DatabaseException {
+        var dbFactory = DatabaseFactory.getInstance();
+        var conn = dbFactory.openConnection(properties.getUrl(), properties.getUsername(), properties.getPassword(), null, resourceAccessor);
+        return DatabaseFactory.getInstance().findCorrectDatabaseImplementation(conn);
+    }
+
     private void doCopy() throws Exception {
-        try (var sourceConn = getDatabaseConnection(source);
-             var targetConn = getDatabaseConnection(target)) {
-            var sourceDb = DatabaseFactory.getInstance().findCorrectDatabaseImplementation(sourceConn);
-            var targetDb = DatabaseFactory.getInstance().findCorrectDatabaseImplementation(targetConn);
+        try {
+            sourceDb = openDatabase(source);
+            targetDb = openDatabase(target);
+            targetSupport = Databases.getDatabase(targetDb);
+
+            if (batchSize <= 0) {
+                batchSize = targetSupport.getDefaultBatchSize();
+            }
 
             targetDb.setAutoCommit(false);
 
-            runSql(sourceDb, source.getInitSql());
-            runSql(targetDb, target.getInitSql());
+            DatabaseSupport.Action enableTriggers = DatabaseSupport.Action.NOP;
+            try {
+                runSql(sourceDb, source.getInitSql());
+                runSql(targetDb, target.getInitSql());
 
-            if ("auto".equals(changelog)) {
-                generateChangeLog(sourceDb, targetDb);
-            }
+                runSql(targetDb, initSql);
 
-            runSql(targetDb, initSql);
 
-            if (dropFirst) {
-                try (var liquibase = new Liquibase((DatabaseChangeLog) null, resourceAccessor, targetDb)) {
-                    // TODO: drop triggers
-                    liquibase.dropAll();
+                if (dropFirst) {
+                    targetSupport.dropAll(targetDb);
                 }
-            }
 
-            if (resolvedChangelog != null) {
-                runChangelog(targetDb);
-            }
+                if (resolvedChangelog != null) {
+                    runChangelog(targetDb);
+                }
 
-            runSql(targetDb, preCopySql);
+                runSql(targetDb, preCopySql);
 
-            var sourceSnapshot = takeSnapshot(sourceDb, false);
-            var targetSnapshot = takeSnapshot(targetDb, true);
-            if (sequenceFilter.isEnabled()) {
-                copySequences(sourceSnapshot, targetSnapshot, targetDb);
-            }
-            if (tableFilter.isEnabled()) {
-                copyTables(sourceSnapshot, targetSnapshot);
+                sourceSnapshot = takeSnapshot(sourceDb, false);
+                targetSnapshot = takeSnapshot(targetDb, true);
+
+                if (!disableTriggerFilter.excludesEverything()) {
+                    enableTriggers = targetSupport.disableTriggers(targetDb, disableTriggerFilter);
+                }
+
+                if (sequenceFilter.isEnabled()) {
+                    copySequences();
+                }
+
+                if (tableFilter.isEnabled()) {
+                    copyTables();
+                }
+
+                if (targetSupport.getDdlCommitMode() == DatabaseSupport.DdlCommitMode.TRANSACTIONAL) {
+                    enableTriggers.execute();
+                    targetDb.commit();
+                } else {
+                    targetDb.commit();
+                    enableTriggers.execute();
+                }
+
+            } catch (LiquibaseException e) {
+                try {
+                    targetDb.rollback();
+                } catch (Exception nested) {
+                    e.addSuppressed(nested);
+                }
+
+                if (targetSupport.getDdlCommitMode() != DatabaseSupport.DdlCommitMode.TRANSACTIONAL) {
+                    try {
+                        enableTriggers.execute();
+                    } catch (Exception nested) {
+                        e.addSuppressed(nested);
+                    }
+                }
+
+                throw e;
             }
 
             runSql(targetDb, postSql);
+        } finally {
+            if (sourceDb != null) {
+                try {
+                    sourceDb.close();
+                } catch (DatabaseException e) {
+                    LOG.warn("Error closing source data base", e);
+                }
+            }
+            if (targetDb != null) {
+                try {
+                    targetDb.close();
+                } catch (DatabaseException e) {
+                    LOG.warn("Error closing target data base", e);
+                }
+            }
+            sourceDb = null;
+            sourceSnapshot = null;
+            targetDb = null;
+            targetSupport = null;
+            targetSnapshot = null;
         }
     }
 
@@ -448,11 +482,11 @@ public class CopyDb {
         } else {
             try {
                 db.execute(statements, List.of());
-                db.commit();
             } catch (Exception e) {
                 db.rollback();
                 throw e;
             }
+            db.commit();
         }
     }
 
@@ -507,79 +541,40 @@ public class CopyDb {
         }
     }
 
-    private void withSqlLogging(boolean logSql, ScopedRunner<?> runner) throws LiquibaseException {
-        withSqlLogging(logSql, () -> {
-            runner.run();
-            return null;
-        });
-    }
-
     private <T> T withoutSqlLogging(ScopedRunnerWithReturn<T> runner) throws LiquibaseException {
         return withSqlLogging(false, runner);
     }
 
-    private void withoutSqlLogging(ScopedRunner<?> runner) throws LiquibaseException {
-        withSqlLogging(false, runner);
-    }
-
-    private static final BigInteger BIGINT_64_MAX = BigInteger.valueOf(Long.MAX_VALUE);
-
-    private static final Map<String, BigInteger> DB_TYPE_SEQUENCE_MAX_MAX = Map.of(
-        "oracle", new BigInteger("9999999999999999999999999999"), // 28 digits
-        "postgresql", BIGINT_64_MAX,
-        "mssql", BIGINT_64_MAX,
-        "h2", BIGINT_64_MAX // Does not complain if value is out of range (for Oracle compatibility?)
-    );
-
-    private void copySequences(DatabaseSnapshot sourceSnapshot, DatabaseSnapshot targetSnapshot, Database target) throws LiquibaseException {
+    private void copySequences() throws LiquibaseException {
         var orderedSequences = sourceSnapshot.get(Sequence.class).stream()
             .filter(s -> sequenceFilter.contains(s.getName()))
             .collect(Collectors.toCollection(ArrayList::new));
         sequenceFilter.sort(orderedSequences, DatabaseObject::getName);
-        var sourceSequenceMaxMax = DB_TYPE_SEQUENCE_MAX_MAX.get(sourceSnapshot.getDatabase().getShortName());
-        var targetSequenceMaxMax = DB_TYPE_SEQUENCE_MAX_MAX.get(targetSnapshot.getDatabase().getShortName());
         for (var seq : orderedSequences) {
             var targetSeq = targetSnapshot.get(Sequence.class).stream()
                 .filter(t -> t.getName().equalsIgnoreCase(seq.getName()))
                 .findFirst()
                 .orElse(null);
-
-            var startValue = seq.getStartValue();
-            if (targetSeq == null || !startValue.equals(targetSeq.getStartValue())) {
-                List<SqlStatement> stmts = new ArrayList<>(2);
-                if (targetSeq != null) {
-                    stmts.add(new DropSequenceStatement(target.getDefaultCatalogName(), target.getDefaultSchemaName(), seq.getName()));
-                }
-
-                var create = new CreateSequenceStatement(target.getDefaultCatalogName(), target.getDefaultSchemaName(), seq.getName());
-                create.setCacheSize(seq.getCacheSize());
-                create.setIncrementBy(seq.getIncrementBy());
-                create.setMinValue(seq.getMinValue());
-                if (seq.getMaxValue() != null) {
-                    if (targetSequenceMaxMax != null && seq.getMaxValue().compareTo(targetSequenceMaxMax) > 0) {
-                        create.setMaxValue(targetSequenceMaxMax);
-                    } else if (sourceSequenceMaxMax == null || !seq.getMaxValue().equals(sourceSequenceMaxMax)) {
-                        create.setMaxValue(seq.getMaxValue());
-                    }
-                }
-                create.setOrdered(seq.getOrdered());
-                create.setCycle(seq.getWillCycle());
-                create.setStartValue(startValue);
-                stmts.add(create);
-                target.execute(stmts.toArray(SqlStatement[]::new), List.of());
-            }
+            targetSupport.copySequence(seq, targetDb, targetSeq);
         }
     }
 
-    private void copyTables(DatabaseSnapshot sourceSnapshot,
-                            DatabaseSnapshot targetSnapshot) throws LiquibaseException {
-        if (tableFilter.getInclude().isEmpty() && tableFilter.getExclude().contains("*")) {
+    private void copyTables() throws LiquibaseException {
+        if (tableFilter.excludesEverything()) {
             return;
         }
 
         var sourceTables = sourceSnapshot.get(Table.class).stream()
             .filter(t -> tableFilter.contains(t.getName()))
             .collect(Collectors.toMap(e -> e.getName().toLowerCase(Locale.ROOT), e -> e));
+        if (sourceTables.isEmpty()) {
+            if (tableFilter.isEmpty()) {
+                LOG.error("No source tables");
+            } else {
+                LOG.error("No source tables matching filter");
+            }
+            return;
+        }
 
         List<Table> targetTables = targetSnapshot.get(Table.class).stream()
             .filter(t -> tableFilter.contains(t.getName()))
@@ -587,44 +582,38 @@ public class CopyDb {
             .collect(Collectors.toCollection(ArrayList::new));
 
         if (targetTables.isEmpty()) {
+            LOG.error("No target tables. Check liquibase changelog or create tables first.");
             return;
         }
 
         tableFilter.sort(targetTables, Table::getName);
 
-        if (disableTriggers) {
-            toggleTriggers(targetSnapshot, false);
-        }
-
-        if (disableForeignKeys) {
-            toggleForeignKeys(targetSnapshot, false);
-        }
-
+        var enableForeignKeys = disableForeignKeys();
         try {
-            var sourceDb = sourceSnapshot.getDatabase();
-            var targetDb = targetSnapshot.getDatabase();
             if (truncate) {
                 for (var targetTable : targetTables) {
-                    truncateTable(targetDb, targetTable);
+                    targetSupport.truncateTable(targetDb, targetTable);
+                    if (targetSupport.getDataCommitMode() != DatabaseSupport.DataCommitMode.ONCE) {
+                        targetDb.commit();
+                    }
                 }
             }
 
             for (var targetTable : targetTables) {
                 var sourceTable = sourceTables.get(targetTable.getName().toLowerCase(Locale.ROOT));
-                copyTable(sourceDb, sourceTable, targetDb, targetTable);
+                copyTable(sourceTable, targetTable);
             }
         } catch (Exception e) {
-            if (disableForeignKeys) {
+            LOG.error("Error copying tables: {}", e.toString());
+            if (targetSupport.getDdlCommitMode() != DatabaseSupport.DdlCommitMode.TRANSACTIONAL) {
                 try {
-                    toggleForeignKeys(targetSnapshot, true);
+                    targetDb.rollback();
                 } catch (Exception nested) {
                     e.addSuppressed(nested);
                 }
-            }
 
-            if (disableTriggers) {
                 try {
-                    toggleTriggers(targetSnapshot, true);
+                    enableForeignKeys.execute();
                 } catch (Exception nested) {
                     e.addSuppressed(nested);
                 }
@@ -633,13 +622,7 @@ public class CopyDb {
             throw e;
         }
 
-        if (disableForeignKeys) {
-            toggleForeignKeys(targetSnapshot, true);
-        }
-
-        if (disableForeignKeys) {
-            toggleTriggers(targetSnapshot, true);
-        }
+        enableForeignKeys.execute();
     }
 
     private static boolean isOracleVirtualColumn(Column c) {
@@ -673,12 +656,11 @@ public class CopyDb {
         return columns;
     }
 
-    private void copyTable(Database source, Table sourceTable,
-                           Database target, Table targetTable) throws LiquibaseException {
-        PreparedStatementFactory sourceStmtFactory = new PreparedStatementFactory((JdbcConnection) source.getConnection());
-        PreparedStatementFactory targetStmtFactory = new PreparedStatementFactory((JdbcConnection) target.getConnection());
+    private void copyTable(Table sourceTable, Table targetTable) throws LiquibaseException {
+        PreparedStatementFactory sourceStmtFactory = new PreparedStatementFactory((JdbcConnection) sourceDb.getConnection());
+        PreparedStatementFactory targetStmtFactory = new PreparedStatementFactory((JdbcConnection) targetDb.getConnection());
 
-        var columns = filterTargetColumns(target, targetTable, sourceTable);
+        var columns = filterTargetColumns(targetDb, targetTable, sourceTable);
         final var insertSql = insertSqlForTable(targetTable, columns);
         if (logSql) {
             SQL_LOG.info("{}", insertSql);
@@ -689,7 +671,7 @@ public class CopyDb {
         sb.append("TABLE ").append(targetTable.getName()).append('\n');
         for (var targetColumn : columns) {
             var sourceColumn = sourceTable.getColumn(targetColumn.getName());
-            var converter = Converters.converterFor(source, sourceColumn, target, targetColumn);
+            var converter = Converters.converterFor(sourceDb, sourceColumn, targetDb, targetColumn);
             sb.append("  ").append(converter).append('\n');
             converters.add(converter);
         }
@@ -719,34 +701,23 @@ public class CopyDb {
                     rowsInBatch = 0;
                     LOG.info("Loading {} {}/{} rows ({}%)", targetTable.getName(), row, total, 100 * row / total);
                     insert.executeBatch();
-                    target.commit();
+                    if (targetSupport.getDataCommitMode() == DatabaseSupport.DataCommitMode.BATCH) {
+                        targetDb.commit();
+                    }
+
                 }
             }
 
             if (rowsInBatch != 0) {
                 LOG.info("Loading {} {}/{} rows ({}%)", targetTable.getName(), row, total, 100 * row / total);
                 insert.executeBatch();
-                target.commit();
+                if (targetSupport.getDataCommitMode() == DatabaseSupport.DataCommitMode.BATCH) {
+                    targetDb.commit();
+                }
             }
         } catch (SQLException e) {
             throw new DatabaseException(e);
         }
-    }
-
-    private void truncateTable(Database db, Table table) throws LiquibaseException {
-        final SqlStatement stmt;
-        if ("oracle".equals(db.getShortName())) {
-            stmt = new RawParameterizedSqlStatement("TRUNCATE TABLE " + table.getName() + " DROP ALL STORAGE CASCADE");
-        } else if ("h2".equals(db.getShortName()) && disableForeignKeys) {
-            stmt = new RawParameterizedSqlStatement("TRUNCATE TABLE " + table.getName());
-        } else if ("postgresql".equals(db.getShortName())) {
-            stmt = new RawParameterizedSqlStatement("TRUNCATE TABLE " + table.getName() + " CASCADE");
-        } else {
-            stmt = new RawParameterizedSqlStatement("DELETE FROM " + table.getName());
-        }
-
-        db.execute(new SqlStatement[]{stmt}, List.of());
-        db.commit();
     }
 
     private String insertSqlForTable(Table table, List<Column> columns) {
@@ -768,70 +739,20 @@ public class CopyDb {
         return sql.toString();
     }
 
-    private void toggleForeignKeys(DatabaseSnapshot snapshot, boolean enable) throws LiquibaseException {
-        List<SqlStatement> stmts = new ArrayList<>();
-        var db = snapshot.getDatabase();
-        if ("h2".equals(db.getShortName())) {
-            stmts.add(new RawParameterizedSqlStatement("SET REFERENTIAL_INTEGRITY " + enable));
-        } else if ("oracle".equals(db.getShortName())) {
-            for (var fk : snapshot.get(ForeignKey.class)) {
-                var ddl = String.format("ALTER TABLE \"%s\" %s CONSTRAINT \"%s\"",
-                    fk.getForeignKeyTable().getName(),
-                    enable ? "ENABLE" : "DISABLE",
-                    fk.getName());
-                stmts.add(new RawParameterizedSqlStatement(ddl));
-            }
-        } else if (Set.of("mysql", "mariadb").contains(db.getShortName())) {
-            stmts.add(new RawParameterizedSqlStatement("SET FOREIGN_KEY_CHECKS=" + (enable ? "1" : "0")));
-        } else if ("postgresql".equals(db.getShortName())) {
-            // TODO: only if superuser
-            stmts.add(new RawParameterizedSqlStatement("SET session_replication_role = " + (enable ? "'origin'" : "'replica'")));
-            /*
-            var processedTables = new HashSet<String>();
-            for (var fk : snapshot.get(ForeignKey.class)) {
-                var table = fk.getForeignKeyTable().getName();
-                if (processedTables.add(table)) {
-                    var ddl = String.format("ALTER TABLE %s %s TRIGGER ALL",
-                        table, enable ? "ENABLE" : "DISABLE");
-                    stmts.add(new RawParameterizedSqlStatement(ddl));
-                }
-            }
-            */
-        } else {
-            throw new DatabaseException("Unsupported database: " + db.getShortName());
+    private DatabaseSupport.Action disableForeignKeys() throws LiquibaseException {
+        if (!disableForeignKeys) {
+            return DatabaseSupport.Action.NOP;
         }
 
-        LOG.info("Will {} foreign key checks in {}", enable ? "enable" : "disable", db);
-
-        withoutSqlLogging(() -> {
-            db.execute(stmts.toArray(SqlStatement[]::new), List.of());
-            db.commit();
-        });
-    }
-
-    private void toggleTriggers(DatabaseSnapshot snapshot, boolean enable) throws LiquibaseException {
-        // TODO: keep track of triggers that were disabled
-        List<SqlStatement> stmts = new ArrayList<>();
-        var db = snapshot.getDatabase();
-        if ("oracle".equals(db.getShortName())) {
-            String ddl = """
-                BEGIN
-                    FOR r_trigger IN (SELECT TRIGGER_NAME FROM USER_TRIGGERS)
-                    LOOP
-                        EXECUTE IMMEDIATE ('ALTER TRIGGER ' || r_trigger.TRIGGER_NAME || ' %s');
-                    END LOOP;
-                END;
-                """.formatted(enable ? "ENABLE" : "DISABLE");
-            stmts.add(new RawParameterizedSqlStatement(ddl));
+        var keys = targetSnapshot.get(ForeignKey.class).stream()
+            .filter(k -> tableFilter.contains(k.getForeignKeyTable().getName()))
+            .sorted(Comparator.comparing(ForeignKey::getName))
+            .toList();
+        if (keys.isEmpty()) {
+            return DatabaseSupport.Action.NOP;
         }
 
-        if (!stmts.isEmpty()) {
-            LOG.info("Will {} triggers in {}", enable ? "enable" : "disable", db);
-            withoutSqlLogging(() -> {
-                db.execute(stmts.toArray(SqlStatement[]::new), List.of());
-                db.commit();
-            });
-        }
+        return targetSupport.disableForeignKeys(targetDb, keys);
     }
 
     private ClassLoader createClassLoader(ClassLoader parent) {
@@ -858,120 +779,11 @@ public class CopyDb {
     private void runChangelog(Database targetDb) throws Exception {
         var classLoader = createClassLoader(Thread.currentThread().getContextClassLoader());
         Scope.child(Scope.Attr.classLoader, classLoader, () -> {
-            try (var liquibase = new Liquibase(resolvedChangelog, resourceAccessor, targetDb)) {
-                liquibase.update(tag, new Contexts(contexts), new LabelExpression(labelFilter));
-            }
+            @SuppressWarnings("resource")
+            var liquibase = new Liquibase(resolvedChangelog, resourceAccessor, targetDb);
+            liquibase.update(tag, new Contexts(contexts), new LabelExpression(labelFilter));
             tableFilter.getExclude().addAll(Arrays.asList("DATABASECHANGELOG", "DATABASECHANGELOGLOCK"));
         });
-    }
-
-    private void generateChangeLog(Database sourceDb, Database targetDb) throws LiquibaseException {
-        var snapshotTypes = new HashSet<>(DatabaseObjectFactory.getInstance().getStandardTypes());
-        snapshotTypes.remove(Schema.class);
-        snapshotTypes.remove(Catalog.class);
-        var catalogAndSchema = sourceDb.getDefaultSchema();
-        SchemaComparison[] schemaComparisons = {new SchemaComparison(catalogAndSchema, catalogAndSchema)};
-        CompareControl compareControl = new CompareControl(schemaComparisons, snapshotTypes);
-
-        Path changeLogPath = Paths.get("changelog.auto.xml").toAbsolutePath();
-        try {
-            try (var os = Files.newOutputStream(changeLogPath)) {
-                var command = new CommandScope(GenerateChangelogCommandStep.COMMAND_NAME[0])
-                    .addArgumentValue(GenerateChangelogCommandStep.CHANGELOG_FILE_ARG, changeLogPath.toString())
-                    .addArgumentValue(GenerateChangelogCommandStep.OVERWRITE_OUTPUT_FILE_ARG, true)
-                    .addArgumentValue(GenerateChangelogCommandStep.AUTHOR_ARG, "copydb")
-                    .addArgumentValue(PreCompareCommandStep.COMPARE_CONTROL_ARG, compareControl)
-                    .addArgumentValue(DbUrlConnectionArgumentsCommandStep.DATABASE_ARG, sourceDb)
-                    .addArgumentValue(DbUrlConnectionArgumentsCommandStep.DATABASE_ARG, sourceDb)
-                    .addArgumentValue(PreCompareCommandStep.SNAPSHOT_TYPES_ARG, snapshotTypes.toArray(Class[]::new))
-                    .setOutput(os);
-                command.execute();
-            }
-
-            fixupAutoChangeLog(sourceDb, targetDb, changeLogPath);
-            resolvedChangelog = changeLogPath.getFileName().toString();
-            resourceAccessor = new DirectoryResourceAccessor(changeLogPath.getParent());
-        } catch (IOException e) {
-            throw new LiquibaseException("Could not create changelog");
-        }
-    }
-
-    private void fixupAutoChangeLog(Database sourceDb, Database targetDb, Path path) throws IOException, LiquibaseException {
-        var accessor = new DirectoryResourceAccessor(path.getParent());
-        var parser = ChangeLogParserFactory.getInstance().getParser(path.getFileName().toString(), accessor);
-        var changeLog = parser.parse(path.getFileName().toString(), new ChangeLogParameters(), accessor);
-
-        boolean crossDb = !sourceDb.getShortName().equals(targetDb.getShortName());
-        boolean fromOracle = "oracle".equals(sourceDb.getShortName());
-        var changeSets = new ArrayList<ChangeSet>();
-        int changeSetIndex = 0;
-        var sourceSequenceMaxMax = DB_TYPE_SEQUENCE_MAX_MAX.get(sourceDb.getShortName());
-        var targetSequenceMaxMax = DB_TYPE_SEQUENCE_MAX_MAX.get(targetDb.getShortName());
-        for (var changeSet : changeLog.getChangeSets()) {
-            var outputChangeSet = new ChangeSet(String.valueOf(++changeSetIndex), changeSet.getAuthor(),
-                changeSet.isAlwaysRun(), changeSet.isRunOnChange(),
-                changeSet.getFilePath(),
-                null, null,
-                null, null);
-            for (var change : changeSet.getChanges()) {
-                if (change instanceof CreateSequenceChange create) {
-                    var max = create.getMaxValue();
-                    if (max != null) {
-                        if (max.equals(sourceSequenceMaxMax)) {
-                            create.setMaxValue(null);
-                        } else if (targetSequenceMaxMax != null && max.compareTo(targetSequenceMaxMax) > 0) {
-                            create.setMaxValue(targetSequenceMaxMax);
-                        }
-                    }
-                } else if (change instanceof AddUniqueConstraintChange u) {
-                    if (Objects.equals(u.getConstraintName(), u.getForIndexName())) {
-                        u.setForIndexName(null);
-                    } else if (fromOracle && u.getConstraintName() != null && u.getConstraintName().startsWith("SYS_")) {
-                        u.setConstraintName(null);
-                    }
-                } else if (crossDb && fromOracle && change instanceof CreateTableChange create) {
-                    for (var col : create.getColumns()) {
-                        var type = col.getType();
-                        if (type.matches("NUMBER\\((19|38)(, 0)?\\)")) {
-                            col.setType("BIGINT");
-                        } else if (type.matches("NUMBER\\(1(, 0)?\\)")) {
-                            col.setType("BOOLEAN");
-                        } else {
-                            type = type.replace("VARCHAR2(", "VARCHAR(");
-                            type = type.replaceAll(" (BYTE|CHAR)\\)", ")");
-                            col.setType(type);
-                        }
-
-                        var computed = col.getDefaultValueComputed();
-                        if (computed != null) {
-                            var val = computed.getValue().replaceAll("\\bSYSDATE\\b", "CURRENT_TIMESTAMP");
-                            col.setDefaultValueComputed(new DatabaseFunction(computed.getSchemaName(), val));
-                        }
-                    }
-                } else if (change instanceof CreateIndexChange create) {
-                    if (crossDb && fromOracle) {
-                        var cols = create.getColumns();
-                        var last = cols.get(cols.size() - 1);
-                        if (last.getComputed() != null && last.getComputed() && last.getName().matches("[01]")) {
-                            // Way of forcing Oracle to index nulls
-                            cols.remove(cols.size() - 1);
-                        }
-                    }
-                }
-                outputChangeSet.addChange(change);
-            }
-            changeSets.add(outputChangeSet);
-        }
-
-        try (var os = Files.newOutputStream(path)) {
-            var serializer = new XMLChangeLogSerializer();
-            serializer.write(changeSets, os);
-        }
-    }
-
-    private DatabaseConnection getDatabaseConnection(JdbcProperties properties) throws DatabaseException {
-        var dbFactory = DatabaseFactory.getInstance();
-        return dbFactory.openConnection(properties.getUrl(), properties.getUsername(), properties.getPassword(), null, resourceAccessor);
     }
 
 }

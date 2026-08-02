@@ -8,7 +8,7 @@ import java.sql.Clob;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 
-class ByteArrayWriter implements ColumnWriter<byte[]> {
+public class ByteArrayWriter implements ColumnWriter<byte[]> {
 
     @Override
     public byte[] convert(Column column, Object val) throws SQLException {
@@ -32,5 +32,5 @@ class ByteArrayWriter implements ColumnWriter<byte[]> {
         return tgt;
     }
 
-    static final ByteArrayWriter INSTANCE = new ByteArrayWriter();
+    public static final ByteArrayWriter INSTANCE = new ByteArrayWriter();
 }

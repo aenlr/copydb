@@ -1,5 +1,6 @@
 package copydb.convert;
 
+import copydb.db.Databases;
 import liquibase.database.Database;
 import liquibase.structure.core.Column;
 import liquibase.structure.core.DataType;
@@ -11,15 +12,9 @@ import java.nio.charset.StandardCharsets;
 import java.sql.Blob;
 import java.sql.Clob;
 import java.sql.SQLException;
-import java.util.Map;
 import java.util.UUID;
 
 public final class Converters {
-
-    private static final Map<String, DatabaseSupport> DATABASES = Map.of(
-        "oracle", OracleSupport.INSTANCE,
-        "postgresql", PostgresSupport.INSTANCE
-    );
 
     private Converters() {
     }
@@ -27,8 +22,8 @@ public final class Converters {
     public static ColumnDescriptor<?, ?> converterFor(Database source, Column sourceColumn,
                                                       Database target, Column targetColumn) {
 
-        var sourceDb = DATABASES.getOrDefault(source.getShortName(), GenericDatabaseSupport.INSTANCE);
-        var targetDb = DATABASES.getOrDefault(target.getShortName(), GenericDatabaseSupport.INSTANCE);
+        var sourceDb = Databases.getDatabase(source);
+        var targetDb = Databases.getDatabase(target);
         ColumnReader<?> reader = sourceDb.readerFor(source, sourceColumn);
         DataType sourceType = sourceColumn.getType();
         String sourceTypeName = sourceType.getTypeName();

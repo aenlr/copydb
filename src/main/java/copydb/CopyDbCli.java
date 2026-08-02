@@ -322,8 +322,6 @@ public class CopyDbCli {
         System.setProperty("liquibase.fileEncoding", "UTF-8");
         System.setProperty("liquibase.secureParsing", "false");
         System.setProperty("liquibase.hub.mode", "off");
-        System.setProperty("org.slf4j.simpleLogger.defaultLogLevel", "debug");
-        System.setProperty("org.slf4j.simpleLogger.log.liquibase.executor", "warn");
 
         var copier = new CopyDb();
         try {
@@ -493,7 +491,7 @@ public class CopyDbCli {
                     commandLineArgs.put("disable-foreign-keys", Boolean.toString(parser.flag));
                 } else if (parser.flag("disable-triggers") || parser.flag("disable-trigger")
                     || parser.flag("no-triggers") || parser.flag("no-trigger")) {
-                    commandLineArgs.put("disable-triggers", Boolean.toString(parser.flag));
+                    commandLineArgs.put("disable-triggers.enabled", Boolean.toString(parser.flag));
                 } else if (parser.arg("init-sql") || parser.arg("post-sql") || parser.arg("pre-copy-sql")) {
                     commandLineArgs.put(parser.opt, parser.val);
                 } else if (parser.current().startsWith("-u")) {

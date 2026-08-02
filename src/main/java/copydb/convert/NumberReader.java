@@ -27,6 +27,6 @@ public class NumberReader implements ColumnReader<Number> {
         throw new IllegalArgumentException("Cannot convert " + val + " to number");
     }
 
-    static final ColumnReader<Number> INSTANCE = new NumberReader();
+    public static final ColumnReader<Number> INSTANCE = new NumberReader();
 
 }

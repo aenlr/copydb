@@ -31,5 +31,5 @@ public class StringWriter implements ColumnWriter<String> {
         return tgt;
     }
 
-    static final ColumnWriter<String> INSTANCE = new StringWriter();
+    public static final ColumnWriter<String> INSTANCE = new StringWriter();
 }

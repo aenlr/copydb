@@ -15,6 +15,6 @@ public class NumberWriter implements ColumnWriter<Number> {
         throw new IllegalArgumentException("Cannot convert " + val + " to " + column);
     }
 
-    static final ColumnWriter<Number> INSTANCE = new NumberWriter();
+    public static final ColumnWriter<Number> INSTANCE = new NumberWriter();
 
 }

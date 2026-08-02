@@ -46,6 +46,6 @@ public class TimestampReader implements ColumnReader<Timestamp> {
         return rs.getTimestamp(column.getName());
     }
 
-    static final ColumnReader<Timestamp> INSTANCE = new TimestampReader();
+    public static final ColumnReader<Timestamp> INSTANCE = new TimestampReader();
 
 }

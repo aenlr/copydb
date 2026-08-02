@@ -47,5 +47,5 @@ public class TimestampWriter implements ColumnWriter<Timestamp> {
         return ts;
     }
 
-    static final TimestampWriter INSTANCE = new TimestampWriter();
+    public static final TimestampWriter INSTANCE = new TimestampWriter();
 }

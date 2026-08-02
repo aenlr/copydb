@@ -12,5 +12,5 @@ public class TimestampTzWriter implements ColumnWriter<OffsetDateTime> {
             .orElseGet(() -> OffsetDateTime.parse(val.toString()));
     }
 
-    static final TimestampTzWriter INSTANCE = new TimestampTzWriter();
+    public static final TimestampTzWriter INSTANCE = new TimestampTzWriter();
 }

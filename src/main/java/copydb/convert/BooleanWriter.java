@@ -25,6 +25,6 @@ public class BooleanWriter implements ColumnWriter<Boolean> {
         throw new IllegalArgumentException("Cannot convert " + val + " to " + column);
     }
 
-    static final BooleanWriter INSTANCE = new BooleanWriter();
+    public static final BooleanWriter INSTANCE = new BooleanWriter();
 
 }

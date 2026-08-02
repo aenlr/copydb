@@ -39,5 +39,5 @@ public class BlobWriter implements ColumnWriter<Blob> {
         return blob;
     }
 
-    static final BlobWriter INSTANCE = new BlobWriter();
+    public static final BlobWriter INSTANCE = new BlobWriter();
 }
