@@ -1,0 +1,14 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Run",
+            "type": "java",
+            "request": "launch",
+            "args": "",
+            "cwd": "${workspaceFolder}",
+            "projectName": "copydb",
+            "mainClass": "copydb.CopyDbCli"
+        }
+    ]
+}
