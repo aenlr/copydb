@@ -455,6 +455,8 @@ public class CopyDbCli {
                     commandLineArgs.put("tables.exclude", String.join(",", l));
                 } else if (parser.flag("copy-tables")) {
                     commandLineArgs.put("tables.enabled", Boolean.toString(parser.flag));
+                } else if (parser.flag("order-by-pk") || parser.flag("order-by-primary-key")) {
+                    commandLineArgs.put("tables.order-by-pk", Boolean.toString(parser.flag));
                 } else if (parser.arg("sequence") || parser.arg("sequences") || parser.arg("seq")) {
                     var l = new ArrayList<>(StringUtil.parseList(commandLineArgs.getProperty("sequences.include")));
                     l.add(parser.val);

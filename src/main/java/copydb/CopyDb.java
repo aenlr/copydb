@@ -30,6 +30,7 @@ import liquibase.statement.core.RawParameterizedSqlStatement;
 import liquibase.structure.DatabaseObject;
 import liquibase.structure.core.Column;
 import liquibase.structure.core.ForeignKey;
+import liquibase.structure.core.PrimaryKey;
 import liquibase.structure.core.Sequence;
 import liquibase.structure.core.Table;
 import org.slf4j.Logger;
@@ -80,6 +81,7 @@ public class CopyDb {
     private boolean dropFirst;
     private boolean truncate;
     private boolean disableForeignKeys = true;
+    private boolean orderByPrimaryKey;
     private boolean logSql = true;
     private int batchSize = 0;
     private String tag;
@@ -119,6 +121,7 @@ public class CopyDb {
         disableForeignKeys = parseBoolean(config.getProperty("disable-foreign-keys"), disableForeignKeys);
         disableTriggerFilter.load(config, "disable-triggers.");
         tableFilter.load(config, "tables.");
+        orderByPrimaryKey = config.getBoolean("tables.order-by-pk", false);
         sequenceFilter.load(config, "sequences.");
         columnFilter.load(config, "columns.");
 
@@ -517,6 +520,9 @@ public class CopyDb {
             if (foreignKeys) {
                 types.add(ForeignKey.class);
             }
+            if (orderByPrimaryKey && db == sourceDb) {
+                types.add(PrimaryKey.class);
+            }
         }
         var ctl = new SnapshotControl(db);
         ctl.getTypesToInclude().clear();
@@ -662,10 +668,6 @@ public class CopyDb {
 
         var columns = filterTargetColumns(targetDb, targetTable, sourceTable);
         final var insertSql = insertSqlForTable(targetTable, columns);
-        if (logSql) {
-            SQL_LOG.info("{}", insertSql);
-        }
-
         var converters = new ArrayList<ColumnDescriptor<?, ?>>(columns.size());
         StringBuilder sb = new StringBuilder();
         sb.append("TABLE ").append(targetTable.getName()).append('\n');
@@ -677,8 +679,21 @@ public class CopyDb {
         }
         LOG.debug(sb.toString());
 
+        String selectSql = "SELECT * FROM " + sourceTable.getName();
+        if (orderByPrimaryKey) {
+            var pk = sourceTable.getPrimaryKey();
+            if (pk != null) {
+                selectSql += " ORDER BY " + String.join(", ", pk.getColumnNamesAsList());
+            }
+        }
+
+        if (logSql) {
+            SQL_LOG.info(selectSql);
+            SQL_LOG.info(insertSql);
+        }
+
         try (var count = sourceStmtFactory.create("SELECT COUNT(*) FROM " + sourceTable.getName());
-             var select = sourceStmtFactory.create("SELECT * FROM " + sourceTable.getName());
+             var select = sourceStmtFactory.create(selectSql);
              var insert = targetStmtFactory.create(insertSql)) {
             long total;
             try (var rs = count.executeQuery()) {
@@ -704,7 +719,6 @@ public class CopyDb {
                     if (targetSupport.getDataCommitMode() == DatabaseSupport.DataCommitMode.BATCH) {
                         targetDb.commit();
                     }
-
                 }
             }
 
