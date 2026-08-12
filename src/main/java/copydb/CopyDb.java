@@ -103,6 +103,14 @@ public class CopyDb {
         source.setReadonly(true);
     }
 
+    public CopyDb(PropertySource config) {
+        this();
+        load(config);
+    }
+
+    /**
+     * Load configuration from properties.
+     */
     public void load(PropertySource config) {
         source.load(config, "source.");
         target.load(config, "target.");

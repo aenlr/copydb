@@ -323,7 +323,6 @@ public class CopyDbCli {
         System.setProperty("liquibase.secureParsing", "false");
         System.setProperty("liquibase.hub.mode", "off");
 
-        var copier = new CopyDb();
         try {
             Properties commandLineArgs = new Properties();
             var propertySources = new ArrayList<PropertySource>();
@@ -568,8 +567,9 @@ public class CopyDbCli {
                 }
             }
 
+            final CopyDb copier;
             try {
-                copier.load(config);
+                copier = new CopyDb(config);
             } catch (NoSuchElementException e) {
                 throw new CliException("Property missing: " + e.getMessage());
             }
@@ -616,6 +616,11 @@ public class CopyDbCli {
                 }
             }
 
+            long start = System.currentTimeMillis();
+            copier.copy();
+            long end = System.currentTimeMillis();
+            CopyDb.LOG.info("Finished ({})", String.format("%.2f s", (end - start) / 1000.0));
+
         } catch (CliException e) {
             System.err.println("copydb: " + e.getMessage());
             if (e.showHelp) {
@@ -624,10 +629,6 @@ public class CopyDbCli {
             System.exit(1);
         }
 
-        long start = System.currentTimeMillis();
-        copier.copy();
-        long end = System.currentTimeMillis();
-        CopyDb.LOG.info("Finished ({})", String.format("%.2f s", (end - start) / 1000.0));
     }
 
 }
