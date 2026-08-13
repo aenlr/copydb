@@ -7,12 +7,16 @@ import copydb.convert.ColumnWriter;
 import copydb.convert.NumberReader;
 import copydb.convert.NumberWriter;
 import copydb.convert.UUIDBytesWriter;
+import liquibase.Scope;
 import liquibase.database.Database;
 import liquibase.database.PreparedStatementFactory;
 import liquibase.database.jvm.JdbcConnection;
 import liquibase.exception.DatabaseException;
 import liquibase.exception.LiquibaseException;
+import liquibase.executor.ExecutorService;
 import liquibase.statement.SqlStatement;
+import liquibase.statement.core.RawParameterizedSqlStatement;
+import liquibase.statement.core.RawSqlStatement;
 import liquibase.structure.core.Column;
 import liquibase.structure.core.DataType;
 import liquibase.structure.core.ForeignKey;
@@ -26,6 +30,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static java.util.Map.entry;
 
@@ -262,6 +267,67 @@ public final class OracleSupport extends GenericDatabaseSupport {
 
         executeSql(db, disable);
         return ExecuteSqlAction.sql(db, enable);
+    }
+
+    @SuppressWarnings("unchecked")
+    @Override
+    public List<Trigger> getTriggers(Database db) throws LiquibaseException {
+        var executor = Scope.getCurrentScope().getSingleton(ExecutorService.class).getExecutor("jdbc", db);
+        var owner = db.getDefaultSchemaName(); // SELECT SYS_CONTEXT( 'USERENV', 'CURRENT_SCHEMA' ) FROM DUAL;
+        executor.comment("Listing triggers");
+        String allTriggersSql =
+            """
+            SELECT TRIGGER_NAME, STATUS, BASE_OBJECT_TYPE, TRIGGERING_EVENT, TABLE_OWNER, TABLE_NAME,
+                   DESCRIPTION, TRIGGER_BODY,
+                   (SELECT LISTAGG(SRC.TEXT) WITHIN GROUP (ORDER BY SRC.LINE)
+                    FROM ALL_SOURCE SRC WHERE SRC.OWNER = TRG.OWNER AND SRC.NAME = TRG.TRIGGER_NAME AND SRC.TYPE = 'TRIGGER') MY_DDL
+            FROM ALL_TRIGGERS TRG
+            WHERE OWNER = ?
+            ORDER BY TRG.TRIGGER_NAME""";
+        var rows = (List<Map<String, String>>)(List<?>)executor.queryForList(new RawParameterizedSqlStatement(allTriggersSql, owner));
+        var result = new ArrayList<Trigger>();
+        for (var row : rows) {
+            var name = row.get("TRIGGER_NAME");
+            var ddl = row.get("MY_DDL");
+            if (ddl != null) {
+                ddl = "CREATE OR REPLACE " + ddl;
+            } else {
+                var description = row.get("DESCRIPTION");
+                var body = row.get("TRIGGER_BODY");
+                if (description == null || body == null) {
+                    continue;
+                }
+                ddl = "CREATE OR REPLACE TRIGGER " + description + '\n' + body;
+            }
+
+            var trigger = new Trigger(null, owner, name);
+            trigger.setDdl(ddl);
+            trigger.setEnabled("ENABLED".equals(row.get("STATUS")));
+
+            var baseObjectType = row.get("BASE_OBJECT_TYPE");
+            if ("TABLE".equals(baseObjectType)) {
+                var tableOwner = row.get("TABLE_OWNER");
+                var tableName = row.get("TABLE_NAME");
+                var table = new Table(null, tableOwner, tableName);
+                trigger.setTable(table);
+            }
+
+            result.add(trigger);
+        }
+
+        return result;
+    }
+
+    @SuppressWarnings("deprecation")
+    @Override
+    public void createTriggers(Database db, List<Trigger> triggers) throws LiquibaseException {
+        List<SqlStatement> stmts = triggers.stream()
+            .filter(t -> t.getDdl() != null)
+            .flatMap(t -> Stream.<SqlStatement>of(
+                new RawSqlStatement(t.getDdl(), "/"),
+                new RawSqlStatement("ALTER TRIGGER %s %s".formatted(db.escapeIndexName(t.getSchema().getCatalogName(), t.getSchema().getName(), t.getName()), t.isEnabled() ? "ENABLE" : "DISABLE"))))
+            .toList();
+        execute(db, stmts);
     }
 
     public static final DatabaseSupport INSTANCE = new OracleSupport();

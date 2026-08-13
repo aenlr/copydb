@@ -493,6 +493,19 @@ public class CopyDbCli {
                 } else if (parser.flag("disable-triggers") || parser.flag("disable-trigger")
                     || parser.flag("no-triggers") || parser.flag("no-trigger")) {
                     commandLineArgs.put("disable-triggers.enabled", Boolean.toString(parser.flag));
+                } else if (parser.flag("copy-triggers")) {
+                    commandLineArgs.put("triggers.enabled", Boolean.toString(parser.flag));
+                } else if (parser.arg("trigger") || parser.arg("triggers")
+                           || parser.arg("include-trigger") || parser.arg("include-triggers")) {
+                    var l = new ArrayList<>(StringUtil.parseList(commandLineArgs.getProperty("triggers.include")));
+                    l.add(parser.val);
+                    commandLineArgs.put("triggers.include", String.join(",", l));
+                    commandLineArgs.put("triggers.enabled", "true");
+                } else if (parser.arg("exclude-trigger") || parser.arg("exclude-triggers")) {
+                    var l = new ArrayList<>(StringUtil.parseList(commandLineArgs.getProperty("triggers.exclude")));
+                    l.add(parser.val);
+                    commandLineArgs.put("triggers.exclude", String.join(",", l));
+                    commandLineArgs.put("triggers.enabled", "true");
                 } else if (parser.arg("init-sql") || parser.arg("post-sql") || parser.arg("pre-copy-sql")) {
                     commandLineArgs.put(parser.opt, parser.val);
                 } else if (parser.current().startsWith("-u")) {

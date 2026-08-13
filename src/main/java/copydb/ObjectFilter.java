@@ -92,6 +92,10 @@ public class ObjectFilter {
     }
 
     public boolean contains(String parent, String k) {
+        if (parent == null) {
+            return contains(k);
+        }
+
         String wildcardParent = "*." + k;
         String specificParent = parent + "." + k;
         if (include.contains(specificParent)) {

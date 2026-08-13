@@ -213,12 +213,22 @@ public class GenericDatabaseSupport implements DatabaseSupport {
     }
 
     @Override
+    public List<Trigger> getTriggers(Database db) throws LiquibaseException {
+        throw new UnsupportedOperationException("Cannot enumerate triggers for " + db.getShortName());
+    }
+
+    @Override
+    public void createTriggers(Database db, List<Trigger> triggers) throws LiquibaseException {
+        throw new UnsupportedOperationException("Cannot create triggers for " + db.getShortName());
+    }
+
+    @Override
     public Action disableTriggers(Database db, ObjectFilter filter) throws LiquibaseException {
         if (!filter.isEnabled() || filter.getExclude().contains("*")) {
             return Action.NOP;
         }
 
-        throw new UnsupportedOperationException("Cannot disable triggers for " +  db.getShortName());
+        throw new UnsupportedOperationException("Cannot disable triggers for " + db.getShortName());
     }
 
     @Override

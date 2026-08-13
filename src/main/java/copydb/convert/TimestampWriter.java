@@ -13,26 +13,18 @@ import java.time.ZonedDateTime;
 public class TimestampWriter implements ColumnWriter<Timestamp> {
 
     public static Timestamp toTimestamp(Object val) {
-        // TODO: transform to pattern matching in Java 21
-        if (val instanceof Timestamp ts) {
-            if (ts.getClass() != Timestamp.class) {
-                return Timestamp.valueOf(ts.toString());
-            }
-
-            return ts;
-        } else if (val instanceof Instant ts) {
-            return Timestamp.from(ts);
-        } else if (val instanceof LocalDateTime dt) {
-            return Timestamp.valueOf(dt);
-        } else if (val instanceof OffsetDateTime dt) {
-            return Timestamp.from(dt.toInstant());
-        } else if (val instanceof ZonedDateTime dt) {
-            return Timestamp.from(dt.toInstant());
-        } else if (val instanceof java.util.Date date) {
-            return new Timestamp(date.getTime());
-        } else {
-            return Timestamp.valueOf(val.toString());
-        }
+        return switch (val) {
+            case null -> null;
+            case Timestamp ts -> ts.getClass() != Timestamp.class
+                ? Timestamp.valueOf(ts.toString())
+                : ts;
+            case Instant ts -> Timestamp.from(ts);
+            case LocalDateTime dt -> Timestamp.valueOf(dt);
+            case OffsetDateTime dt -> Timestamp.from(dt.toInstant());
+            case ZonedDateTime dt -> Timestamp.from(dt.toInstant());
+            case java.util.Date date -> new Timestamp(date.getTime());
+            default -> Timestamp.valueOf(val.toString());
+        };
     }
 
     @Override

@@ -45,6 +45,11 @@ public interface DatabaseSupport {
      */
     void copySequence(Sequence source, Database db, Sequence target) throws LiquibaseException;
 
+    /**
+     * Enumerate triggers in database.
+     */
+    List<Trigger> getTriggers(Database db) throws LiquibaseException;
+
     enum DdlCommitMode {
         /**
          * Executing DDL will implicitly commit.
@@ -207,5 +212,7 @@ public interface DatabaseSupport {
     default void execute(Database db, SqlStatement... statements) throws LiquibaseException {
         db.execute(statements, List.of());
     }
+
+    void createTriggers(Database db, List<Trigger> triggers) throws LiquibaseException;
 
 }

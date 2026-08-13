@@ -72,6 +72,7 @@ public class CopyDb {
     private final ObjectFilter tableFilter = new ObjectFilter(true);
     private final ObjectFilter sequenceFilter = new ObjectFilter(false);
     private final ObjectFilter columnFilter = new ObjectFilter(true);
+    private final ObjectFilter triggerFilter = new ObjectFilter(false);
     private final ObjectFilter disableTriggerFilter = new ObjectFilter(false);
     private Database targetDb;
     private Database sourceDb;
@@ -132,6 +133,7 @@ public class CopyDb {
         orderByPrimaryKey = config.getBoolean("tables.order-by-pk", false);
         sequenceFilter.load(config, "sequences.");
         columnFilter.load(config, "columns.");
+        triggerFilter.load(config, "triggers.");
 
         initSql = config.getProperty("init-sql", initSql);
         preCopySql = config.getProperty("pre-copy-sql", preCopySql);
@@ -291,6 +293,11 @@ public class CopyDb {
         try {
             sourceDb = openDatabase(source);
             targetDb = openDatabase(target);
+
+            if (triggerFilter.isEnabled() && sourceDb.getClass() != targetDb.getClass()) {
+                throw new IllegalArgumentException("Cannot copy triggers between database types");
+            }
+
             targetSupport = Databases.getDatabase(targetDb);
 
             if (batchSize <= 0) {
@@ -319,6 +326,10 @@ public class CopyDb {
 
                 sourceSnapshot = takeSnapshot(sourceDb, false);
                 targetSnapshot = takeSnapshot(targetDb, true);
+
+                if (triggerFilter.isEnabled()) {
+                    copyTriggers();
+                }
 
                 if (!disableTriggerFilter.excludesEverything()) {
                     enableTriggers = targetSupport.disableTriggers(targetDb, disableTriggerFilter);
@@ -561,16 +572,26 @@ public class CopyDb {
 
     private void copySequences() throws LiquibaseException {
         var orderedSequences = sourceSnapshot.get(Sequence.class).stream()
-            .filter(s -> sequenceFilter.contains(s.getName()))
-            .collect(Collectors.toCollection(ArrayList::new));
+                .filter(s -> sequenceFilter.contains(s.getName()))
+                .collect(Collectors.toCollection(ArrayList::new));
         sequenceFilter.sort(orderedSequences, DatabaseObject::getName);
         for (var seq : orderedSequences) {
             var targetSeq = targetSnapshot.get(Sequence.class).stream()
-                .filter(t -> t.getName().equalsIgnoreCase(seq.getName()))
-                .findFirst()
-                .orElse(null);
+                    .filter(t -> t.getName().equalsIgnoreCase(seq.getName()))
+                    .findFirst()
+                    .orElse(null);
             targetSupport.copySequence(seq, targetDb, targetSeq);
         }
+    }
+
+    private void copyTriggers() throws LiquibaseException {
+        var support = Databases.getDatabase(sourceDb);
+        var triggers = support.getTriggers(sourceDb)
+            .stream()
+            .filter(t -> triggerFilter.contains(t.getTable() != null ? t.getTable().getName() : null, t.getName()))
+            .toList();
+
+        targetSupport.createTriggers(targetDb, triggers);
     }
 
     private void copyTables() throws LiquibaseException {

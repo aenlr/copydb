@@ -9,3 +9,4 @@ copydb.properties
 secrets.properties
 *.local*
 changelog*.*
+/launch.json
