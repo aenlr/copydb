@@ -218,11 +218,6 @@ public class GenericDatabaseSupport implements DatabaseSupport {
     }
 
     @Override
-    public void createTriggers(Database db, List<Trigger> triggers) throws LiquibaseException {
-        throw new UnsupportedOperationException("Cannot create triggers for " + db.getShortName());
-    }
-
-    @Override
     public Action disableTriggers(Database db, ObjectFilter filter) throws LiquibaseException {
         if (!filter.isEnabled() || filter.getExclude().contains("*")) {
             return Action.NOP;

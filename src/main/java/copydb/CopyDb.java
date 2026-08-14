@@ -293,12 +293,11 @@ public class CopyDb {
         try {
             sourceDb = openDatabase(source);
             targetDb = openDatabase(target);
-
-            if (triggerFilter.isEnabled() && sourceDb.getClass() != targetDb.getClass()) {
-                throw new IllegalArgumentException("Cannot copy triggers between database types");
-            }
-
             targetSupport = Databases.getDatabase(targetDb);
+
+            if (triggerFilter.isEnabled() && !targetSupport.canCopyTriggers(sourceDb, targetDb)) {
+                throw new IllegalArgumentException("Cannot copy triggers from " + sourceDb.getShortName() + " to " + targetDb.getShortName());
+            }
 
             if (batchSize <= 0) {
                 batchSize = targetSupport.getDefaultBatchSize();

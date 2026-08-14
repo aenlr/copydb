@@ -17,6 +17,7 @@ import java.math.BigInteger;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
+import java.util.Objects;
 
 public interface DatabaseSupport {
 
@@ -213,6 +214,16 @@ public interface DatabaseSupport {
         db.execute(statements, List.of());
     }
 
-    void createTriggers(Database db, List<Trigger> triggers) throws LiquibaseException;
+    default boolean canCopyTriggers(Database source, Database target) {
+        return source.getClass().equals(target.getClass());
+    }
+
+    default void createTriggers(Database db, List<Trigger> triggers) throws LiquibaseException {
+        var stmts = triggers.stream()
+            .map(Trigger::getDdl)
+            .filter(Objects::nonNull)
+            .toList();
+        executeSql(db, stmts);
+    }
 
 }
