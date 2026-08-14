@@ -22,23 +22,28 @@ public class TimestampReader implements ColumnReader<Timestamp> {
 
     @Override
     public Timestamp convert(Column column, Object val) throws SQLException {
-        if (val instanceof Timestamp ts) {
-            return ts;
-        } else if (val instanceof OffsetDateTime dt) {
-            return Timestamp.from(dt.toInstant());
-        } else if (val instanceof ZonedDateTime dt) {
-            return Timestamp.from(dt.toInstant());
-        } else if (val instanceof Instant ts) {
-            return Timestamp.from(ts);
-        } else if (TimestampReader.WELL_KNOWN_TIMESTAMP_TYPES.contains(val.getClass().getName())) {
+        return switch (val) {
+            case Timestamp ts -> ts;
+            case OffsetDateTime dt -> Timestamp.from(dt.toInstant());
+            case ZonedDateTime dt -> Timestamp.from(dt.toInstant());
+            case Instant ts -> Timestamp.from(ts);
+            case String s -> convert(s);
+            default -> convertWellKnown(val);
+        };
+    }
+
+    private Timestamp convertWellKnown(Object val) {
+        if (WELL_KNOWN_TIMESTAMP_TYPES.contains(val.getClass().getName())) {
             return Timestamp.valueOf(val.toString());
-        } else if (val instanceof String s) {
-            if (ISO8601_TIMESTAMP_PATTERN.matcher(s).find()) {
-                s = s.substring(0, 10) + ' ' + s.substring(11);
-            }
-            return Timestamp.valueOf(s);
         }
         throw new IllegalArgumentException("Cannot convert " + val + " to timestamp");
+    }
+
+    private static Timestamp convert(String s) {
+        if (ISO8601_TIMESTAMP_PATTERN.matcher(s).find()) {
+            s = s.substring(0, 10) + ' ' + s.substring(11);
+        }
+        return Timestamp.valueOf(s);
     }
 
     @Override

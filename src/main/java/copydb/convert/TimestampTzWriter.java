@@ -8,8 +8,7 @@ public class TimestampTzWriter implements ColumnWriter<OffsetDateTime> {
 
     @Override
     public OffsetDateTime convert(Column column, Object val) {
-        return TimestampTzReader.toOffsetDateTime(val)
-            .orElseGet(() -> OffsetDateTime.parse(val.toString()));
+        return TimestampTzReader.toOffsetDateTime(val);
     }
 
     public static final TimestampTzWriter INSTANCE = new TimestampTzWriter();

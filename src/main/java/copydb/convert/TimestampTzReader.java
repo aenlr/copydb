@@ -11,7 +11,6 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeParseException;
-import java.util.Optional;
 
 import static copydb.convert.TimestampReader.ISO8601_TIMESTAMP_PATTERN;
 import static copydb.convert.TimestampReader.JDBC_TIMESTAMP_PATTERN;
@@ -19,44 +18,51 @@ import static copydb.convert.TimestampReader.WELL_KNOWN_TIMESTAMP_TYPES;
 
 public class TimestampTzReader implements ColumnReader<OffsetDateTime> {
 
-    public static Optional<OffsetDateTime> toOffsetDateTime(Object val) {
-        if (val instanceof OffsetDateTime dt) {
-            return Optional.of(dt);
+    public static OffsetDateTime toOffsetDateTime(Object val) {
+        return switch (val) {
+            case OffsetDateTime dt -> dt;
+            case java.util.Date date -> convert(date);
+            case Instant ts -> convert(ts);
+            case LocalDateTime dt -> dt.atZone(ZoneOffset.systemDefault()).toOffsetDateTime();
+            case ZonedDateTime dt -> dt.toOffsetDateTime();
+            case String s -> convert(s);
+            default -> convertWellKnown(val);
+        };
+    }
+
+    private static OffsetDateTime convertWellKnown(Object val) {
+        if (WELL_KNOWN_TIMESTAMP_TYPES.contains(val.getClass().getName())) {
+            return convert(Timestamp.valueOf(val.toString()).toInstant());
+        }
+        throw new IllegalArgumentException("Cannot convert " + val + " to timestamp");
+    }
+
+    private static OffsetDateTime convert(java.util.Date date) {
+        return convert(date.toInstant());
+    }
+
+    private static OffsetDateTime convert(Instant instant) {
+        return instant.atZone(ZoneOffset.systemDefault()).toOffsetDateTime();
+    }
+
+    private static OffsetDateTime convert(String s) {
+        if (JDBC_TIMESTAMP_PATTERN.matcher(s).find()) {
+            s = s.replaceFirst(" ", "T");
+        } else if (!ISO8601_TIMESTAMP_PATTERN.matcher(s).find()) {
+            return null;
         }
 
-        if (val instanceof java.util.Date date) {
-            var instant = date.toInstant();
-            return Optional.of(instant.atOffset(ZoneOffset.systemDefault().getRules().getOffset(instant)));
-        } else if (val instanceof Instant ts) {
-            return Optional.of(ts.atZone(ZoneOffset.systemDefault()).toOffsetDateTime());
-        } else if (val instanceof LocalDateTime dt) {
-            return Optional.of(dt.atZone(ZoneOffset.systemDefault()).toOffsetDateTime());
-        } else if (val instanceof ZonedDateTime dt) {
-            return Optional.of(dt.toOffsetDateTime());
-        } else if (WELL_KNOWN_TIMESTAMP_TYPES.contains(val.getClass().getName())) {
-            var instant = Timestamp.valueOf(val.toString()).toInstant();
-            return Optional.of(instant.atOffset(ZoneOffset.systemDefault().getRules().getOffset(instant)));
-        } else if (val instanceof String s) {
-            if (JDBC_TIMESTAMP_PATTERN.matcher(s).find()) {
-                s = s.replaceFirst(" ", "T");
-            } else if (!ISO8601_TIMESTAMP_PATTERN.matcher(s).find()) {
-                return Optional.empty();
-            }
-
-            try {
-                return Optional.of(OffsetDateTime.parse(s));
-            } catch (DateTimeParseException _ignored) {
-                // IGNORED
-            }
+        try {
+            return OffsetDateTime.parse(s);
+        } catch (DateTimeParseException _ignored) {
+            // IGNORED
         }
-
-        return Optional.empty();
+        return null;
     }
 
     @Override
     public OffsetDateTime convert(Column column, Object val) throws SQLException {
-        return toOffsetDateTime(val)
-            .orElseThrow(() -> new IllegalArgumentException("Cannot convert " + val + " to timestamp"));
+        return toOffsetDateTime(val);
     }
 
     @Override
