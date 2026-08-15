@@ -1,0 +1,41 @@
+services:
+  h2:
+    image: h2:local
+    build:
+      context: ./h2
+      args:
+        - H2_VERSION=${H2_VERSION-2.4.240}
+    restart: "no"
+    volumes:
+      - h2:/data
+    ports:
+      - 9092:9092
+      - 9093:8082
+
+  oracle:
+    image: container-registry.oracle.com/database/express:21.3.0-xe
+    restart: "no"
+    stop_signal: SIGTERM
+    stop_grace_period: 600s
+    volumes:
+      - oracle:/opt/oracle/oradata
+      # Really a setup script, but the image comes with a database
+      # created already so scripts in /opt/oracle/scripts/setup are
+      # not run.
+      # Run by /opt/oracle/runOracle.sh which in turn executes
+      # /opt/oracle/runUserScripts.sh "$ORACLE_BASE"/scripts/startup
+      # where ORACLE_BASE=/opt/oracle.
+      - ./oracle/startup:/opt/oracle/scripts/startup
+    environment:
+      - ORACLE_PWD=oracle
+      - ORACLE_CHARACTERSET=AL32UTF8
+      - TZ=${TZ-Europe/Stockholm}
+      - ORA_SDTZ=OS_TZ
+
+    ports:
+      - 1521:1521
+      - 5500:5500
+
+volumes:
+  h2: {}
+  oracle: {}
