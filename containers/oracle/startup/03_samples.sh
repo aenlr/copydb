@@ -1,12 +1,17 @@
 #!/usr/bin/env bash
 
+if [ "$CREATE_SAMPLE_SCHEMAS" != Y ]; then
+  exit 0
+fi
+
 set -euo pipefail
+marker="$PWD/.samples"
+
 cd /tmp
 version="21.1"
 tag="v$version.zip"
 dir="$PWD/db-sample-schemas-$version"
 archive="$dir.zip"
-marker="$dir/.installed"
 
 if [ -f "$marker" ]; then
   echo "Sample schemas already installed. Remove $marker to recreate."
@@ -22,8 +27,8 @@ if [ ! -d "$dir" ]; then
     fi
   fi
 
-  unzip "$archive" || exit $?
-  if ! sed -i "s|__SUB__CWD__|$dir|g" "$dir"/*.sql "$dir"/*/*.sql "$dir"/*/*.dat; then
+  unzip "$archive" "db-sample-schemas-$version"/{human_resources,customer_orders}"/*" || exit $?
+  if ! sed -i "s|__SUB__CWD__|$dir|g" "$dir"/*/*.sql; then
     rm -r "$dir"
     exit 1
   fi
@@ -31,12 +36,12 @@ fi
 
 cd "$dir"
 echo "Creating Human Resources database (HR)"
-"$ORACLE_HOME"/bin/sqlplus "system/$ORACLE_PWD@//localhost:1521/XEPDB1" \
+"$ORACLE_HOME"/bin/sqlplus "SYSTEM/$ORACLE_PWD@//localhost:1521/XEPDB1" \
               @human_resources/hr_main.sql \
               HR USERS TEMP "$ORACLE_PWD" /tmp/ "//localhost:1521/XEPDB1"
 
 echo "Creating Customer Orders database (CO)"
-"$ORACLE_HOME"/bin/sqlplus "system/$ORACLE_PWD@//localhost:1521/XEPDB1" \
+"$ORACLE_HOME"/bin/sqlplus "SYSTEM/$ORACLE_PWD@//localhost:1521/XEPDB1" \
               @customer_orders/co_main.sql \
               CO "//localhost:1521/XEPDB1" USERS TEMP
 
