@@ -1,21 +1,19 @@
 #!/usr/bin/env bash
 
 if [ "$CREATE_SAMPLE_SCHEMAS" != Y ]; then
-  exit 0
+  return
 fi
 
-set -euo pipefail
-marker="$PWD/.samples"
+marker="$HOME/.samples"
 
-cd /tmp
 version="21.1"
 tag="v$version.zip"
-dir="$PWD/db-sample-schemas-$version"
+dir="/tmp/db-sample-schemas-$version"
 archive="$dir.zip"
 
 if [ -f "$marker" ]; then
   echo "Sample schemas already installed. Remove $marker to recreate."
-  exit 0
+  return
 fi
 
 if [ ! -d "$dir" ]; then
@@ -23,32 +21,27 @@ if [ ! -d "$dir" ]; then
     if ! curl --fail -L "https://github.com/oracle-samples/db-sample-schemas/archive/refs/tags/$tag" -o "$archive"; then
       echo "Failed to download sample schemas" >&2
       rm -f "$archive"
-      exit 1
+      return 1
     fi
   fi
 
-  unzip "$archive" "db-sample-schemas-$version"/{human_resources,customer_orders}"/*" || exit $?
+  unzip -d /tmp "$archive" "db-sample-schemas-$version"/{human_resources,customer_orders}"/*" || return $?
   if ! sed -i "s|__SUB__CWD__|$dir|g" "$dir"/*/*.sql; then
     rm -r "$dir"
-    exit 1
+    return 1
   fi
 fi
 
-cd "$dir"
+pushd "$dir" || return $?
 echo "Creating Human Resources database (HR)"
 "$ORACLE_HOME"/bin/sqlplus "SYSTEM/$ORACLE_PWD@//localhost:1521/XEPDB1" \
               @human_resources/hr_main.sql \
-              HR USERS TEMP "$ORACLE_PWD" /tmp/ "//localhost:1521/XEPDB1"
+              HR USERS TEMP "$ORACLE_PWD" /tmp/ "//localhost:1521/XEPDB1" </dev/null
 
 echo "Creating Customer Orders database (CO)"
 "$ORACLE_HOME"/bin/sqlplus "SYSTEM/$ORACLE_PWD@//localhost:1521/XEPDB1" \
               @customer_orders/co_main.sql \
-              CO "//localhost:1521/XEPDB1" USERS TEMP
+              CO "//localhost:1521/XEPDB1" USERS TEMP </dev/null
+popd || return $?
 
 touch "$marker"
-
-# "$ORACLE_HOME"/bin/sqlplus "system/$ORACLE_PWD@//localhost:1521/XEPDB1" \
-  #               @mksample.sql "$ORACLE_PWD" "$ORACLE_PWD" \
-  #               hr oe pm ix sh bi \
-  #               USERS TEMP \
-  #               /tmp/ //localhost:1521/XEPDB1
