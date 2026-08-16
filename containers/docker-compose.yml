@@ -13,34 +13,69 @@ services:
       - 9092:9092
       - 9093:8082
 
-  oracle:
+  ora18c:
     # https://container-registry.oracle.com/ords/ocr/ba/database/express
-    image: container-registry.oracle.com/database/express:21.3.0-xe
-    container_name: copydb-oracle
+    image: container-registry.oracle.com/database/express:18.4.0-xe
+    container_name: copydb-ora18c
     restart: "no"
     stop_signal: SIGTERM
     stop_grace_period: 600s
     volumes:
-      - oracle:/opt/oracle/oradata
-      # Really setup scripts, but the image comes with a database
-      # created already so scripts in /opt/oracle/scripts/setup are
-      # not run. See /opt/oracle/runOracle.sh.
-      - ./oracle/startup:/opt/oracle/scripts/startup
+      - ora18c:/opt/oracle/oradata
+      - ./oracle/scripts:/opt/oracle/scripts
+      # Scripts for installing samples
+      - ./ora21c/samples:/home/oracle/samples
     environment:
       - ORACLE_PWD=oracle
       - ORACLE_CHARACTERSET=AL32UTF8
       - ORA_SDTZ=OS_TZ
       - TZ
-      # The classic SCOTT schema. Connect as SCOTT/tiger.
-      # Created by default, set to N to disable.
-      - CREATE_SCOTT_SCHEMA
-      # Various samples from https://github.com/oracle-samples/db-sample-schemas
-      # NOT created by default. Set to Y to enable.
-      - CREATE_SAMPLE_SCHEMAS
+    ports:
+      - 1518:1521
+      - 5518:5500
+    profiles: [disabled]
 
+  ora21c:
+    # https://container-registry.oracle.com/ords/ocr/ba/database/express
+    image: container-registry.oracle.com/database/express:21.3.0-xe
+    container_name: copydb-ora21c
+    restart: "no"
+    stop_signal: SIGTERM
+    stop_grace_period: 600s
+    volumes:
+      - ora21c:/opt/oracle/oradata
+      - ./oracle/scripts:/opt/oracle/scripts
+      # Scripts for installing samples
+      - ./ora21c/samples:/home/oracle/samples
+    environment:
+      - ORACLE_PWD=oracle
+      - ORACLE_CHARACTERSET=AL32UTF8
+      - ORA_SDTZ=OS_TZ
+      - TZ
     ports:
       - 1521:1521
-      - 5500:5500
+      - 5521:5500
+    profiles: [disabled]
+
+  ora26ai:
+    # https://container-registry.oracle.com/ords/ocr/ba/database/free
+    image: container-registry.oracle.com/database/free:23.26.2.0-lite
+    container_name: copydb-ora26ai
+    restart: "no"
+    stop_signal: SIGTERM
+    stop_grace_period: 600s
+    volumes:
+      - ora26ai:/opt/oracle/oradata
+      - ./oracle/scripts:/opt/oracle/scripts
+    environment:
+      - ORACLE_PWD=oracle
+      - ORACLE_CHARACTERSET=AL32UTF8
+      - ORA_SDTZ=OS_TZ
+      - TZ
+    ports:
+      - 1526:1521
+      - 5526:5500
+    profiles: [disabled]
 
   postgres:
     image: postgres:18
@@ -49,7 +84,6 @@ services:
     environment:
       POSTGRES_PASSWORD: postgres
       POSTGRES_USER: postgres
-      POSTGRES_DB: postgres
     volumes:
       - postgres:/var/lib/postgresql
     ports:
@@ -57,5 +91,7 @@ services:
 
 volumes:
   h2: {}
-  oracle: {}
+  ora18c: {}
+  ora21c: {}
+  ora26ai: {}
   postgres: {}
