@@ -1,8 +1,9 @@
 services:
   h2:
     image: h2:local
+    pull_policy: never
     build:
-      context: ./h2
+      context: ./containers/h2
       args:
         - H2_VERSION=${H2_VERSION-2.4.240}
     container_name: copydb-h2
@@ -22,9 +23,9 @@ services:
     stop_grace_period: 600s
     volumes:
       - ora18c:/opt/oracle/oradata
-      - ./oracle/scripts:/opt/oracle/scripts
+      - ./containers/oracle/scripts:/opt/oracle/scripts
       # Scripts for installing samples
-      - ./ora21c/samples:/home/oracle/samples
+      - ./containers/ora21c/samples:/home/oracle/samples
     environment:
       - ORACLE_PWD=oracle
       - ORACLE_CHARACTERSET=AL32UTF8
@@ -44,9 +45,9 @@ services:
     stop_grace_period: 600s
     volumes:
       - ora21c:/opt/oracle/oradata
-      - ./oracle/scripts:/opt/oracle/scripts
+      - ./containers/oracle/scripts:/opt/oracle/scripts
       # Scripts for installing samples
-      - ./ora21c/samples:/home/oracle/samples
+      - ./containers/ora21c/samples:/home/oracle/samples
     environment:
       - ORACLE_PWD=oracle
       - ORACLE_CHARACTERSET=AL32UTF8
@@ -66,7 +67,7 @@ services:
     stop_grace_period: 600s
     volumes:
       - ora26ai:/opt/oracle/oradata
-      - ./oracle/scripts:/opt/oracle/scripts
+      - ./containers/oracle/scripts:/opt/oracle/scripts
     environment:
       - ORACLE_PWD=oracle
       - ORACLE_CHARACTERSET=AL32UTF8

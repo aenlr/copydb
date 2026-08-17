@@ -3,15 +3,15 @@
 Docker compose project to start various database services.
 
 To conveniently choose which services to start by default
-you may create a `compose.override.yaml` file:
+you may create a `docker-compose.override.yml` file:
 ```yaml
 services:
   h2:
-    profiles: [disabled] # disable (enabled by default)
-  postgres:
-    profiles: [disabled]
+    profiles: [disabled] # disable
   ora21c:
-    profiles: !override [] # enable (disabled by default)
+    ports: !override
+      - 2521:1521 # override host port
+    profiles: !override [] # enable
 ```
 
 ## H2
@@ -37,6 +37,8 @@ For example, to connect to the Oracle 26ai instance from outside the container:
 ```shell
 sqlplus SCOTT/tiger@//localhost:1526/FREEPDB1
 ```
+
+Use `docker-compose.override.yml` to override port mappings.
 
 ### Oracle 18c/21c
 

@@ -10,3 +10,7 @@ secrets.properties
 *.local*
 changelog*.*
 /launch.json
+
+.env
+*.override.yml
+*.override.yaml
