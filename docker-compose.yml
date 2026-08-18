@@ -78,9 +78,9 @@ services:
       - 5526:5500
     profiles: [disabled]
 
-  postgres:
+  pg18:
     image: postgres:18
-    container_name: copydb-postgres
+    container_name: copydb-pg18
     restart: "no"
     environment:
       POSTGRES_PASSWORD: postgres
