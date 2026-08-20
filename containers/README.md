@@ -14,6 +14,13 @@ services:
     profiles: !override [] # enable
 ```
 
+## Sakila
+
+Set the environment variable SAKILA=true in your `.env` file or in
+`docker-compose.override.yml` to create the
+[Sakila](https://dev.mysql.com/doc/sakila/en/) database (currently
+only supported for Oracle).
+
 ## H2
 
 Starts an H2 instance allowing creation of new databases in the home

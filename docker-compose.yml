@@ -26,11 +26,13 @@ services:
       - ./containers/oracle/scripts:/opt/oracle/scripts
       # Scripts for installing samples
       - ./containers/ora21c/samples:/home/oracle/samples
+      - ./sakila/oracle-sakila-db:/home/oracle/sakila
     environment:
       - ORACLE_PWD=oracle
       - ORACLE_CHARACTERSET=AL32UTF8
       - ORA_SDTZ=OS_TZ
       - TZ
+      - SAKILA
     ports:
       - 1518:1521
       - 5518:5500
@@ -48,11 +50,13 @@ services:
       - ./containers/oracle/scripts:/opt/oracle/scripts
       # Scripts for installing samples
       - ./containers/ora21c/samples:/home/oracle/samples
+      - ./sakila/oracle-sakila-db:/home/oracle/sakila
     environment:
       - ORACLE_PWD=oracle
       - ORACLE_CHARACTERSET=AL32UTF8
       - ORA_SDTZ=OS_TZ
       - TZ
+      - SAKILA
     ports:
       - 1521:1521
       - 5521:5500
@@ -68,11 +72,13 @@ services:
     volumes:
       - ora26ai:/opt/oracle/oradata
       - ./containers/oracle/scripts:/opt/oracle/scripts
+      - ./sakila/oracle-sakila-db:/home/oracle/sakila
     environment:
       - ORACLE_PWD=oracle
       - ORACLE_CHARACTERSET=AL32UTF8
       - ORA_SDTZ=OS_TZ
       - TZ
+      - SAKILA
     ports:
       - 1526:1521
       - 5526:5500
