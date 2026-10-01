@@ -397,6 +397,8 @@ public class CopyDb {
         boolean comments = true;
         String delimiter = null;
         boolean ignoreErrors = false;
+        // > 0: commit every N statements, 0: commit at end, -1: don't commit explicitly
+        int commit = 0;
 
         boolean parse(String params) {
             boolean any = false;
@@ -418,6 +420,21 @@ public class CopyDb {
                     comments = StringUtil.parseBoolean(val, true);
                 } else if ("nocomments".equalsIgnoreCase(name)) {
                     comments = !StringUtil.parseBoolean(val, true);
+                } else if ("commit".equalsIgnoreCase(name)) {
+                    commit = parseBoolean(val)
+                        .map(t -> t ? 1 : 0)
+                        .orElseGet(() -> {
+                            final int i;
+                            try {
+                                i = Integer.parseInt(val);
+                            } catch (Exception e) {
+                                throw new IllegalArgumentException(name + ": illegal value: " + val);
+                            }
+                            if (i < -1) {
+                                throw new IllegalArgumentException(name + ": illegal value: " + val);
+                            }
+                            return i;
+                        });
                 } else if ("errors".equalsIgnoreCase(name)) {
                     if ("ignore".equalsIgnoreCase(val) || "skip".equalsIgnoreCase(val)) {
                         ignoreErrors = true;
@@ -489,25 +506,59 @@ public class CopyDb {
             statements = new SqlStatement[]{new RawParameterizedSqlStatement(sql, options.delimiter)};
         }
 
-        if (options.ignoreErrors) {
+        if (options.ignoreErrors || options.commit > 0) {
+            int count = 0;
             for (var stmt : statements) {
                 try {
                     db.execute(new SqlStatement[]{stmt}, List.of());
-                    db.commit();
+                    count++;
+                    if (count == options.commit) {
+                        db.commit();
+                        count = 0;
+                    }
                 } catch (DatabaseException e) {
-                    db.rollback();
-                    Throwable cause = e.getCause() instanceof SQLException ? e.getCause() : e;
-                    LOG.error("Ingoring SQL error", cause);
+                    try {
+                        db.rollback();
+                    } catch (Exception nested) {
+                        e.addSuppressed(nested);
+                    }
+                    if (options.ignoreErrors) {
+                        Throwable cause = e.getCause() instanceof SQLException ? e.getCause() : e;
+                        LOG.error("Ingoring SQL error", cause);
+                    } else {
+                        throw e;
+                    }
                 }
             }
         } else {
             try {
                 db.execute(statements, List.of());
             } catch (Exception e) {
-                db.rollback();
+                try {
+                    db.rollback();
+                } catch (Exception nested) {
+                    e.addSuppressed(nested);
+                }
                 throw e;
             }
-            db.commit();
+        }
+
+        if (options.commit == 0) {
+            try {
+                db.commit();
+            } catch (DatabaseException e) {
+                try {
+                    db.rollback();
+                } catch (Exception nested) {
+                    e.addSuppressed(nested);
+                }
+                if (options.ignoreErrors) {
+                    Throwable cause = e.getCause() instanceof SQLException ? e.getCause() : e;
+                    LOG.error("Ingoring commit error", cause);
+                } else {
+                    throw e;
+                }
+            }
         }
     }
 
