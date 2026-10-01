@@ -1,6 +1,6 @@
 # Test containers
 
-Docker compose project to start various database services.
+Docker Compose project to start various database services.
 
 To conveniently choose which services to start by default
 you may create a `docker-compose.override.yml` file:
@@ -57,9 +57,22 @@ can be installed by running
 docker compose exec -u oracle ora21c /home/oracle/samples/install-sample-schemas.sh human_resources
 ```
 
-Changing the argument to `all' will install all sample schemas (NOTE:
+Changing the argument to `all` will install all sample schemas (NOTE:
 not all schemas have been tested if they work with this setup).
 
 ### Oracle 26ai (23ai)
 
 The `ora26ai` service is an Oracle AI Database 26ai Free instance.
+
+## PostgreSQL
+
+Two PostgreSQL containers are provided:
+- pg17 for PostgreSQL version 17 (disabled by default)
+- pg18 for PostgreSQL version 18
+
+Example on for overriding specific version via `docker-compose.override.yml`:
+```yaml
+services:
+  pg18:
+    image: postgres:18.6  # override image to specific version 
+```

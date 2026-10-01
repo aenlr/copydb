@@ -11,8 +11,8 @@ services:
     volumes:
       - h2:/data
     ports:
-      - 9092:9092
-      - 9093:8082
+      - "9092:9092"
+      - "9093:8082"
 
   ora18c:
     # https://container-registry.oracle.com/ords/ocr/ba/database/express
@@ -34,8 +34,8 @@ services:
       - TZ
       - SAKILA
     ports:
-      - 1518:1521
-      - 5518:5500
+      - "1518:1521"
+      - "5518:5500"
     profiles: [disabled]
 
   ora21c:
@@ -58,8 +58,8 @@ services:
       - TZ
       - SAKILA
     ports:
-      - 1521:1521
-      - 5521:5500
+      - "1521:1521"
+      - "5521:5500"
     profiles: [disabled]
 
   ora26ai:
@@ -80,8 +80,21 @@ services:
       - TZ
       - SAKILA
     ports:
-      - 1526:1521
-      - 5526:5500
+      - "1526:1521"
+      - "5526:5500"
+    profiles: [disabled]
+
+  pg17:
+    image: postgres:17
+    container_name: copydb-pg17
+    restart: "no"
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: postgres
+    volumes:
+      - pg17:/var/lib/postgresql
+    ports:
+      - "5432:5432"
     profiles: [disabled]
 
   pg18:
@@ -92,13 +105,14 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_USER: postgres
     volumes:
-      - postgres:/var/lib/postgresql
+      - pg18:/var/lib/postgresql
     ports:
-      - 5432:5432
+      - "5432:5432"
 
 volumes:
   h2: {}
   ora18c: {}
   ora21c: {}
   ora26ai: {}
-  postgres: {}
+  pg17: {}
+  pg18: {}
