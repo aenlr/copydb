@@ -486,6 +486,13 @@ public class CopyDbCli {
                     commandLineArgs.put("contexts", parser.val);
                 } else if (parser.arg("labels") || parser.arg("label")) {
                     commandLineArgs.put("label-filter", parser.val);
+                } else if (parser.arg("source-schema")) {
+                    commandLineArgs.put("source.schema", parser.val);
+                } else if (parser.arg("target-schema")) {
+                    commandLineArgs.put("target.schema", parser.val);
+                } else if (parser.arg("schema")) {
+                    commandLineArgs.put("source.schema", parser.val);
+                    commandLineArgs.put("target.schema", parser.val);
                 } else if (parser.flag("disable-foreign-keys") || parser.flag("disable-foreign-key")
                            || parser.flag("disable-fks") || parser.flag("disable-fk")
                            || parser.flag("disable-foreignkeys") || parser.flag("disable-foreignkey")) {
@@ -632,8 +639,13 @@ public class CopyDbCli {
             long start = System.currentTimeMillis();
             copier.copy();
             long end = System.currentTimeMillis();
-            CopyDb.LOG.info("Finished ({})", String.format("%.2f s", (end - start) / 1000.0));
-
+            double sec = (end - start) / 1000.0;
+            double rowsPerSec = copier.getTotalRows() / sec;
+            double colsPerSec = copier.getTotalColumns() / sec;
+            CopyDb.LOG.info("Finished: {}, ~{}, ~{}",
+                String.format("%.2f s", sec),
+                String.format("%.2f rows/s", rowsPerSec),
+                String.format("%.2f columns/s", colsPerSec));
         } catch (CliException e) {
             System.err.println("copydb: " + e.getMessage());
             if (e.showHelp) {

@@ -93,6 +93,8 @@ public class CopyDb {
     private String initSql;
     private String preCopySql;
     private String postSql;
+    private long totalRows;
+    private long totalColumns;
 
     public CopyDb(JdbcProperties source, JdbcProperties target) {
         this.source = source;
@@ -236,6 +238,14 @@ public class CopyDb {
         this.batchSize = batchSize;
     }
 
+    public long getTotalRows() {
+        return totalRows;
+    }
+
+    public long getTotalColumns() {
+        return totalColumns;
+    }
+
     public void copy() throws LiquibaseException, IOException {
         if (target.isReadonly()) {
             throw new IllegalStateException("Target database is read only: " + target.getUrl());
@@ -285,8 +295,15 @@ public class CopyDb {
 
     private Database openDatabase(JdbcProperties properties) throws DatabaseException {
         var dbFactory = DatabaseFactory.getInstance();
-        var conn = dbFactory.openConnection(properties.getUrl(), properties.getUsername(), properties.getPassword(), null, resourceAccessor);
-        return DatabaseFactory.getInstance().findCorrectDatabaseImplementation(conn);
+        var conn = dbFactory.openConnection(properties.getUrl(),
+            properties.getUsername(),
+            properties.getPassword(),
+            null, resourceAccessor);
+        var db = DatabaseFactory.getInstance().findCorrectDatabaseImplementation(conn);
+        if (properties.getSchema() != null) {
+            db.setDefaultSchemaName(properties.getSchema());
+        }
+        return db;
     }
 
     private void doCopy() throws Exception {
@@ -748,8 +765,10 @@ public class CopyDb {
         var columns = filterTargetColumns(targetDb, targetTable, sourceTable);
         final var insertSql = insertSqlForTable(targetTable, columns);
         var converters = new ArrayList<ColumnDescriptor<?, ?>>(columns.size());
-        StringBuilder sb = new StringBuilder();
-        sb.append("TABLE ").append(targetTable.getName()).append('\n');
+        StringBuilder sb = new StringBuilder()
+            .append("TABLE ")
+            .append(targetDb.escapeTableName(null, null, targetTable.getName()))
+            .append('\n');
         for (var targetColumn : columns) {
             var sourceColumn = sourceTable.getColumn(targetColumn.getName());
             var converter = Converters.converterFor(sourceDb, sourceColumn, targetDb, targetColumn);
@@ -758,7 +777,8 @@ public class CopyDb {
         }
         LOG.debug(sb.toString());
 
-        String selectSql = "SELECT * FROM " + sourceTable.getName();
+        String qualifiedSourceTable = sourceDb.escapeTableName(null, null, sourceTable.getName());
+        String selectSql = "SELECT * FROM " + qualifiedSourceTable;
         if (orderByPrimaryKey) {
             var pk = sourceTable.getPrimaryKey();
             if (pk != null) {
@@ -771,13 +791,15 @@ public class CopyDb {
             SQL_LOG.info(insertSql);
         }
 
-        try (var count = sourceStmtFactory.create("SELECT COUNT(*) FROM " + sourceTable.getName());
+        try (var count = sourceStmtFactory.create("SELECT COUNT(*) FROM " + qualifiedSourceTable);
              var select = sourceStmtFactory.create(selectSql);
              var insert = targetStmtFactory.create(insertSql)) {
             long total;
             try (var rs = count.executeQuery()) {
                 rs.next();
                 total = rs.getLong(1);
+                totalRows += total;
+                totalColumns += total * converters.size();
             }
 
             var rs = select.executeQuery();
@@ -814,15 +836,18 @@ public class CopyDb {
     }
 
     private String insertSqlForTable(Table table, List<Column> columns) {
+        String qualifiedName = targetDb.escapeTableName(null, null, table.getName());
         var sql = new StringBuilder();
         sql.append("INSERT INTO ");
-        sql.append(table.getName());
+        sql.append(qualifiedName);
         sql.append("(");
         for (int i = 0; i < columns.size(); i++) {
             if (i != 0) {
                 sql.append(',');
             }
-            sql.append(columns.get(i).getName());
+            var col = columns.get(i);
+            String colName = targetDb.escapeColumnName(null, null, table.getName(), col.getName());
+            sql.append(colName);
         }
         sql.append(") VALUES(");
         for (int i = 0; i < columns.size(); i++) {

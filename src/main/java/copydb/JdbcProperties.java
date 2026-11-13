@@ -5,12 +5,15 @@ import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.Optional;
+import java.util.function.Predicate;
 
 import static copydb.StringUtil.trimToNull;
 
 public class JdbcProperties {
     private String username;
     private String password;
+    private String schema;
     private String url;
     private boolean readonly;
     private String initSql;
@@ -29,6 +32,16 @@ public class JdbcProperties {
 
     public void setPassword(String password) {
         this.password = trimToNull(password);
+    }
+
+    public String getSchema() {
+        return schema;
+    }
+
+    public void setSchema(String schema) {
+        this.schema = Optional.ofNullable(schema)
+            .filter(Predicate.not(String::isBlank))
+            .orElse(null);
     }
 
     public String getUrl() {
@@ -113,6 +126,7 @@ public class JdbcProperties {
 
         setUsername(getDbProperty(properties, prefix, datasourcePrefix, "username", this.username));
         setPassword(getDbProperty(properties, prefix, datasourcePrefix, "password", this.password));
+        setSchema(getDbProperty(properties, prefix, datasourcePrefix, "schema", this.schema));
         setInitSql(getDbProperty(properties, prefix, datasourcePrefix, "init-sql", this.initSql));
         setReadonly(StringUtil.parseBoolean(getDbProperty(properties, prefix, datasourcePrefix, "readonly", null), this.readonly));
     }
