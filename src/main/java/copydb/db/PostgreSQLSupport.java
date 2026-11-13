@@ -28,6 +28,8 @@ import java.sql.Savepoint;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.stream.Collectors;
 
 import static java.util.Map.entry;
 
@@ -135,10 +137,56 @@ public final class PostgreSQLSupport extends GenericDatabaseSupport {
     }
 
     @Override
+    public void dropAll(Database db) throws LiquibaseException {
+        if (db.getDefaultSchema() != null) {
+            if (hasDatabasePrivilege(db, "create") || isSuperUser(db)) {
+                executeSql(db, "drop schema if exists " + db.getDefaultSchemaName() + " cascade");
+                vacuumLo(db);
+                executeSql(db, "create schema " + db.getDefaultSchemaName());
+                return;
+            }
+        }
+
+        super.dropAll(db);
+        vacuumLo(db);
+    }
+
+    private void vacuumLo(Database db) throws LiquibaseException {
+        if (!hasColumnPrivilege(db, "pg_largeobject_metadata", "oid", "SELECT")) {
+            return;
+        }
+
+        String predicates = queryLoColumns(db).stream()
+            .map(col -> orphanedLoPredicate(db, col, "l.oid") + '\n')
+            .collect(Collectors.joining("   AND "));
+        if (predicates.isEmpty()) {
+            executeSql(db, "SELECT lo_unlink(oid) FROM pg_largeobject_metadata");
+        } else {
+            executeSql(db, """
+                SELECT lo_unlink(l.oid)
+                  FROM pg_largeobject_metadata l
+                 WHERE %s""".formatted(predicates));
+        }
+    }
+
+    @Override
     public void truncateTable(Database db, Table table) throws LiquibaseException {
-        String name = db.escapeTableName(null, null, table.getName());
-        String sql = "TRUNCATE TABLE " + name + " CASCADE";
-        executeSql(db, sql);
+        boolean truncatePossible = true;
+        for (var col : table.getColumns()) {
+            String type = col.getType().getTypeName();
+            if ("lo".equals(type) || "oid".equals(type)) {
+                truncatePossible = false;
+                break;
+            }
+        }
+
+        if (truncatePossible) {
+            String name = db.escapeTableName(null, null, table.getName());
+            String sql = "TRUNCATE TABLE " + name + " CASCADE";
+            executeSql(db, sql);
+        } else {
+            super.truncateTable(db, table);
+        }
     }
 
     @Override
@@ -146,31 +194,143 @@ public final class PostgreSQLSupport extends GenericDatabaseSupport {
         return alterSequenceRestart(source, db, target, value -> "RESTART WITH " + value);
     }
 
-    @SuppressWarnings("deprecation")
-    private boolean isSuperUser(Database db) throws LiquibaseException {
+    private static String orphanedLoPredicate(Database db, Column col, String ref) {
+        String tableName = db.escapeTableName(col.getSchema().getCatalogName(), col.getSchema().getName(), col.getRelation().getName());
+        String columnName = db.escapeColumnName(null, null, null, col.getName());
+        return "NOT EXISTS (SELECT FROM " + tableName + " t WHERE t." + columnName + " = " + ref + ')';
+    }
+
+    private List<Column> queryLoColumns(Database db) throws LiquibaseException {
+        var sql = """
+            SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME
+            FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_SCHEMA <> 'pg_catalog' AND DATA_TYPE IN ('oid', 'lo')
+            ORDER BY TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME""";
+        List<Map<String, String>> rows = queryRows(db, "Querying large object columns", sql);
+        return rows.stream()
+            .map(r -> new Column(Table.class, db.getDefaultCatalogName(),
+                r.get("TABLE_SCHEMA"), r.get("TABLE_NAME"), r.get("COLUMN_NAME")))
+            .toList();
+    }
+
+    private boolean hasDatabasePrivilege(Database db, String privilege) throws LiquibaseException {
+        var sql = "select has_database_privilege(current_database(), '"
+            + db.escapeStringForDatabase(privilege)
+            + "')";
+        return queryForObject(db, "Query database privilege", sql, Boolean.class).orElse(false);
+    }
+
+    private boolean hasColumnPrivilege(Database db, String table, String column, String privilege) throws LiquibaseException {
+        var sql = "select has_column_privilege(current_database(), '"
+            + db.escapeStringForDatabase(table)
+            + "', '"
+            + db.escapeStringForDatabase(column)
+            + "', '"
+            + db.escapeStringForDatabase(privilege)
+            + "')";
+        return queryForObject(db, "Query column privilege", sql, Boolean.class).orElse(false);
+    }
+
+    private <T> Optional<T> queryForObject(Database db,
+                                           String comment,
+                                           String query,
+                                           Class<T> clazz) throws LiquibaseException {
         var conn = (JdbcConnection) db.getConnection();
         var executor = Scope.getCurrentScope().getSingleton(ExecutorService.class).getExecutor("jdbc", db);
-        executor.comment("Checking if superuser");
+        executor.comment(comment);
 
-        Savepoint savepoint;
-        Boolean superuser = false;
+        Savepoint savepoint = conn.setSavepoint();
         try {
-            savepoint = conn.getUnderlyingConnection().setSavepoint();
-        } catch (SQLException e) {
-            throw new DatabaseException(e);
-        }
-
-        try {
-            superuser = executor.queryForObject(new RawSqlStatement("select rolsuper from pg_roles where rolname = current_role"), Boolean.class);
-            conn.releaseSavepoint(savepoint);
+            @SuppressWarnings("deprecation")
+            var sql = new RawSqlStatement(query);
+            var result = executor.queryForObject(sql, clazz);
+            return Optional.ofNullable(result);
         } catch (Exception e) {
             try {
-                conn.getUnderlyingConnection().rollback(savepoint);
-            } catch (SQLException nested) {
+                conn.rollback(savepoint);
+            } catch (Exception nested) {
+                e.addSuppressed(nested);
+            }
+            if (e instanceof LiquibaseException le) {
+                throw le;
+            } else {
                 throw new DatabaseException(e);
             }
         }
+    }
 
+    private <T> List<T> queryColumn(Database db,
+                                    String comment,
+                                    String query,
+                                    Class<T> type) throws LiquibaseException {
+        var conn = (JdbcConnection) db.getConnection();
+        var executor = Scope.getCurrentScope().getSingleton(ExecutorService.class).getExecutor("jdbc", db);
+        executor.comment(comment);
+
+        Savepoint savepoint = conn.setSavepoint();
+        try {
+            @SuppressWarnings("deprecation")
+            var sql = new RawSqlStatement(query);
+            @SuppressWarnings("unchecked")
+            var result = (List<T>)executor.queryForList(sql, type);
+            conn.releaseSavepoint(savepoint);
+            return result;
+        } catch (Exception e) {
+            try {
+                conn.rollback(savepoint);
+            } catch (Exception nested) {
+                e.addSuppressed(nested);
+            }
+            if (e instanceof LiquibaseException le) {
+                throw le;
+            } else {
+                throw new DatabaseException(e);
+            }
+        }
+    }
+
+    private <T> List<Map<String, T>> queryRows(Database db,
+                                               String comment,
+                                               String query) throws LiquibaseException {
+        var conn = (JdbcConnection) db.getConnection();
+        var executor = Scope.getCurrentScope().getSingleton(ExecutorService.class).getExecutor("jdbc", db);
+        executor.comment(comment);
+
+        Savepoint savepoint = conn.setSavepoint();
+        try {
+            @SuppressWarnings("deprecation")
+            var sql = new RawSqlStatement(query);
+            @SuppressWarnings("unchecked")
+            var result = (List<Map<String, T>>) (List<?>)executor.queryForList(sql);
+            conn.releaseSavepoint(savepoint);
+            return result;
+        } catch (Exception e) {
+            try {
+                conn.rollback(savepoint);
+            } catch (Exception nested) {
+                e.addSuppressed(nested);
+            }
+            if (e instanceof LiquibaseException le) {
+                throw le;
+            } else {
+                throw new DatabaseException(e);
+            }
+        }
+    }
+
+    private Map<String, ?> queryPgRoles(Database db) throws LiquibaseException {
+        List<Map<String, Object>> rows = queryRows(db, "Query pg_roles",
+            "select * from pg_roles where rolname = current_role");
+        if (rows.size() == 1) {
+            return rows.getFirst();
+        }
+
+        return Map.of();
+    }
+
+    private boolean isSuperUser(Database db) throws LiquibaseException {
+        var roles = queryPgRoles(db);
+        Boolean superuser = (Boolean) roles.get("ROLSUPER");
         return superuser != null && superuser;
     }
 
@@ -194,7 +354,7 @@ public final class PostgreSQLSupport extends GenericDatabaseSupport {
                 }
             }
             disableStmts.add("SET CONSTRAINTS ALL DEFERRED");
-            enableStmts.add(0, "SET CONSTRAINTS ALL IMMEDIATE");
+            enableStmts.addFirst("SET CONSTRAINTS ALL IMMEDIATE");
         }
         executeSql(db, disableStmts);
         return ExecuteSqlAction.sql(db, enableStmts);
