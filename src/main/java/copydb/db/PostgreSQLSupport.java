@@ -6,14 +6,9 @@ import copydb.convert.ColumnWriter;
 import copydb.convert.Converters;
 import copydb.convert.NumberReader;
 import copydb.convert.NumberWriter;
-import liquibase.Scope;
 import liquibase.database.Database;
-import liquibase.database.jvm.JdbcConnection;
-import liquibase.exception.DatabaseException;
 import liquibase.exception.LiquibaseException;
-import liquibase.executor.ExecutorService;
 import liquibase.statement.SqlStatement;
-import liquibase.statement.core.RawSqlStatement;
 import liquibase.structure.core.Column;
 import liquibase.structure.core.ForeignKey;
 import liquibase.structure.core.Sequence;
@@ -24,11 +19,9 @@ import java.nio.charset.StandardCharsets;
 import java.sql.Blob;
 import java.sql.Clob;
 import java.sql.SQLException;
-import java.sql.Savepoint;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.stream.Collectors;
 
 import static java.util.Map.entry;
@@ -242,93 +235,6 @@ public final class PostgreSQLSupport extends GenericDatabaseSupport {
             + db.escapeStringForDatabase(privilege)
             + "')";
         return queryForObject(db, "Query column privilege", sql, Boolean.class).orElse(false);
-    }
-
-    private <T> Optional<T> queryForObject(Database db,
-                                           String comment,
-                                           String query,
-                                           Class<T> clazz) throws LiquibaseException {
-        var conn = (JdbcConnection) db.getConnection();
-        var executor = Scope.getCurrentScope().getSingleton(ExecutorService.class).getExecutor("jdbc", db);
-        executor.comment(comment);
-
-        Savepoint savepoint = conn.setSavepoint();
-        try {
-            @SuppressWarnings("deprecation")
-            var sql = new RawSqlStatement(query);
-            var result = executor.queryForObject(sql, clazz);
-            return Optional.ofNullable(result);
-        } catch (Exception e) {
-            try {
-                conn.rollback(savepoint);
-            } catch (Exception nested) {
-                e.addSuppressed(nested);
-            }
-            if (e instanceof LiquibaseException le) {
-                throw le;
-            } else {
-                throw new DatabaseException(e);
-            }
-        }
-    }
-
-    private <T> List<T> queryColumn(Database db,
-                                    String comment,
-                                    String query,
-                                    Class<T> type) throws LiquibaseException {
-        var conn = (JdbcConnection) db.getConnection();
-        var executor = Scope.getCurrentScope().getSingleton(ExecutorService.class).getExecutor("jdbc", db);
-        executor.comment(comment);
-
-        Savepoint savepoint = conn.setSavepoint();
-        try {
-            @SuppressWarnings("deprecation")
-            var sql = new RawSqlStatement(query);
-            @SuppressWarnings("unchecked")
-            var result = (List<T>)executor.queryForList(sql, type);
-            conn.releaseSavepoint(savepoint);
-            return result;
-        } catch (Exception e) {
-            try {
-                conn.rollback(savepoint);
-            } catch (Exception nested) {
-                e.addSuppressed(nested);
-            }
-            if (e instanceof LiquibaseException le) {
-                throw le;
-            } else {
-                throw new DatabaseException(e);
-            }
-        }
-    }
-
-    private <T> List<Map<String, T>> queryRows(Database db,
-                                               String comment,
-                                               String query) throws LiquibaseException {
-        var conn = (JdbcConnection) db.getConnection();
-        var executor = Scope.getCurrentScope().getSingleton(ExecutorService.class).getExecutor("jdbc", db);
-        executor.comment(comment);
-
-        Savepoint savepoint = conn.setSavepoint();
-        try {
-            @SuppressWarnings("deprecation")
-            var sql = new RawSqlStatement(query);
-            @SuppressWarnings("unchecked")
-            var result = (List<Map<String, T>>) (List<?>)executor.queryForList(sql);
-            conn.releaseSavepoint(savepoint);
-            return result;
-        } catch (Exception e) {
-            try {
-                conn.rollback(savepoint);
-            } catch (Exception nested) {
-                e.addSuppressed(nested);
-            }
-            if (e instanceof LiquibaseException le) {
-                throw le;
-            } else {
-                throw new DatabaseException(e);
-            }
-        }
     }
 
     private Map<String, ?> queryPgRoles(Database db) throws LiquibaseException {

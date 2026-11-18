@@ -17,8 +17,12 @@ import copydb.convert.TimestampTzWriter;
 import copydb.convert.TimestampWriter;
 import copydb.convert.UUIDStringWriter;
 import copydb.convert.UUIDWriter;
+import liquibase.Scope;
 import liquibase.database.Database;
+import liquibase.database.jvm.JdbcConnection;
+import liquibase.exception.DatabaseException;
 import liquibase.exception.LiquibaseException;
+import liquibase.executor.ExecutorService;
 import liquibase.sql.Sql;
 import liquibase.sqlgenerator.SqlGeneratorFactory;
 import liquibase.statement.SqlStatement;
@@ -33,6 +37,7 @@ import liquibase.structure.core.Sequence;
 import liquibase.structure.core.Table;
 
 import java.math.BigInteger;
+import java.sql.Savepoint;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -350,6 +355,93 @@ public class GenericDatabaseSupport implements DatabaseSupport {
         stmt.setStartValue(seq.getStartValue());
 
         return stmt;
+    }
+
+    protected <T> Optional<T> queryForObject(Database db,
+                                             String comment,
+                                             String query,
+                                             Class<T> clazz) throws LiquibaseException {
+        var conn = (JdbcConnection) db.getConnection();
+        var executor = Scope.getCurrentScope().getSingleton(ExecutorService.class).getExecutor("jdbc", db);
+        executor.comment(comment);
+
+        Savepoint savepoint = conn.setSavepoint();
+        try {
+            @SuppressWarnings("deprecation")
+            var sql = new RawSqlStatement(query);
+            var result = executor.queryForObject(sql, clazz);
+            return Optional.ofNullable(result);
+        } catch (Exception e) {
+            try {
+                conn.rollback(savepoint);
+            } catch (Exception nested) {
+                e.addSuppressed(nested);
+            }
+            if (e instanceof LiquibaseException le) {
+                throw le;
+            } else {
+                throw new DatabaseException(e);
+            }
+        }
+    }
+
+    protected <T> List<T> queryColumn(Database db,
+                                      String comment,
+                                      String query,
+                                      Class<T> type) throws LiquibaseException {
+        var conn = (JdbcConnection) db.getConnection();
+        var executor = Scope.getCurrentScope().getSingleton(ExecutorService.class).getExecutor("jdbc", db);
+        executor.comment(comment);
+
+        Savepoint savepoint = conn.setSavepoint();
+        try {
+            @SuppressWarnings("deprecation")
+            var sql = new RawSqlStatement(query);
+            @SuppressWarnings("unchecked")
+            var result = (List<T>) executor.queryForList(sql, type);
+            conn.releaseSavepoint(savepoint);
+            return result;
+        } catch (Exception e) {
+            try {
+                conn.rollback(savepoint);
+            } catch (Exception nested) {
+                e.addSuppressed(nested);
+            }
+            if (e instanceof LiquibaseException le) {
+                throw le;
+            } else {
+                throw new DatabaseException(e);
+            }
+        }
+    }
+
+    protected <T> List<Map<String, T>> queryRows(Database db,
+                                                 String comment,
+                                                 String query) throws LiquibaseException {
+        var conn = (JdbcConnection) db.getConnection();
+        var executor = Scope.getCurrentScope().getSingleton(ExecutorService.class).getExecutor("jdbc", db);
+        executor.comment(comment);
+
+        Savepoint savepoint = conn.setSavepoint();
+        try {
+            @SuppressWarnings("deprecation")
+            var sql = new RawSqlStatement(query);
+            @SuppressWarnings("unchecked")
+            var result = (List<Map<String, T>>) (List<?>) executor.queryForList(sql);
+            conn.releaseSavepoint(savepoint);
+            return result;
+        } catch (Exception e) {
+            try {
+                conn.rollback(savepoint);
+            } catch (Exception nested) {
+                e.addSuppressed(nested);
+            }
+            if (e instanceof LiquibaseException le) {
+                throw le;
+            } else {
+                throw new DatabaseException(e);
+            }
+        }
     }
 
     public static final DatabaseSupport INSTANCE = new GenericDatabaseSupport("generic");
