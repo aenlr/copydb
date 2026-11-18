@@ -30,6 +30,14 @@ public class ColumnDescriptor<S,T> {
         return writer.write(target, src, stmt, paramIndex);
     }
 
+    public Column getSource() {
+        return source;
+    }
+
+    public Column getTarget() {
+        return target;
+    }
+
     @Override
     public String toString() {
         return source.getName() + " " + source.getType() + " -> " + target.getName() + " " + target.getType() + " [" + reader.getClass().getSimpleName() + ":" + writer.getClass().getSimpleName() + "]";

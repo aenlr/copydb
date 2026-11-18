@@ -14,6 +14,7 @@ public class JdbcProperties {
     private String username;
     private String password;
     private String schema;
+    private String liquibaseSchema;
     private String url;
     private boolean readonly;
     private String initSql;
@@ -42,6 +43,14 @@ public class JdbcProperties {
         this.schema = Optional.ofNullable(schema)
             .filter(Predicate.not(String::isBlank))
             .orElse(null);
+    }
+
+    public String getLiquibaseSchema() {
+        return liquibaseSchema;
+    }
+
+    public void setLiquibaseSchema(String liquibaseSchema) {
+        this.liquibaseSchema = liquibaseSchema;
     }
 
     public String getUrl() {
@@ -127,6 +136,7 @@ public class JdbcProperties {
         setUsername(getDbProperty(properties, prefix, datasourcePrefix, "username", this.username));
         setPassword(getDbProperty(properties, prefix, datasourcePrefix, "password", this.password));
         setSchema(getDbProperty(properties, prefix, datasourcePrefix, "schema", this.schema));
+        setLiquibaseSchema(getDbProperty(properties, prefix, datasourcePrefix, "liquibase-schema", this.liquibaseSchema));
         setInitSql(getDbProperty(properties, prefix, datasourcePrefix, "init-sql", this.initSql));
         setReadonly(StringUtil.parseBoolean(getDbProperty(properties, prefix, datasourcePrefix, "readonly", null), this.readonly));
     }

@@ -29,6 +29,7 @@ import liquibase.statement.SqlStatement;
 import liquibase.statement.core.RawParameterizedSqlStatement;
 import liquibase.structure.DatabaseObject;
 import liquibase.structure.core.Column;
+import liquibase.structure.core.DataType;
 import liquibase.structure.core.ForeignKey;
 import liquibase.structure.core.PrimaryKey;
 import liquibase.structure.core.Sequence;
@@ -47,9 +48,13 @@ import java.nio.file.Paths;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
+import java.util.TreeMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -93,8 +98,10 @@ public class CopyDb {
     private String initSql;
     private String preCopySql;
     private String postSql;
+    private List<Table> targetTables;
+    private Map<CopyTypeKey, CopyTypeStat> typeStats = Map.of();
     private long totalRows;
-    private long totalColumns;
+    private long totalDatums;
 
     public CopyDb(JdbcProperties source, JdbcProperties target) {
         this.source = source;
@@ -238,12 +245,20 @@ public class CopyDb {
         this.batchSize = batchSize;
     }
 
+    public List<Table> getTargetTables() {
+        return targetTables != null ? Collections.unmodifiableList(targetTables) : List.of();
+    }
+
+    public Map<CopyTypeKey, CopyTypeStat> getTypeStats() {
+        return typeStats;
+    }
+
     public long getTotalRows() {
         return totalRows;
     }
 
-    public long getTotalColumns() {
-        return totalColumns;
+    public long getTotalDatums() {
+        return totalDatums;
     }
 
     public void copy() throws LiquibaseException, IOException {
@@ -303,6 +318,9 @@ public class CopyDb {
         if (properties.getSchema() != null) {
             db.setDefaultSchemaName(properties.getSchema());
         }
+        if (properties.getLiquibaseSchema() != null) {
+            db.setLiquibaseSchemaName(properties.getLiquibaseSchema());
+        }
         return db;
     }
 
@@ -333,6 +351,8 @@ public class CopyDb {
                 if (dropFirst) {
                     targetSupport.dropAll(targetDb);
                 }
+
+                targetSupport.createDefaultSchemas(targetDb);
 
                 if (resolvedChangelog != null) {
                     runChangelog(targetDb);
@@ -678,7 +698,8 @@ public class CopyDb {
             return;
         }
 
-        List<Table> targetTables = targetSnapshot.get(Table.class).stream()
+        typeStats = new TreeMap<>();
+        targetTables = targetSnapshot.get(Table.class).stream()
             .filter(t -> tableFilter.contains(t.getName()))
             .filter(t -> sourceTables.containsKey(t.getName().toLowerCase(Locale.ROOT)))
             .collect(Collectors.toCollection(ArrayList::new));
@@ -727,27 +748,17 @@ public class CopyDb {
         enableForeignKeys.execute();
     }
 
-    private static boolean isOracleVirtualColumn(Column c) {
-        if (c.getComputed() != null) {
-            return false;
-        }
-
+    private static boolean isVirtualColumn(Column c) {
         return c.getDefaultValue() instanceof DatabaseFunction func
             && func.getValue() != null
-            && func.getValue().startsWith("GENERATED ALWAYS AS ");
+            && func.getValue().toUpperCase(Locale.ROOT).startsWith("GENERATED ALWAYS AS ");
     }
 
     private List<Column> filterTargetColumns(Database database, Table table, Table sourceTable) {
         var columns = table.getColumns().stream()
-            .filter(c -> sourceTable.getColumn(c.getName()) != null)
+            .filter(c -> sourceTable.getColumn(c.getName()) != null
+                && !isVirtualColumn(c))
             .toList();
-
-        if ("oracle".equals(database.getShortName())) {
-            // Filter out virtual columns
-            columns = columns.stream()
-                .filter(c -> !isOracleVirtualColumn(c))
-                .toList();
-        }
 
         if (columnFilter.isEnabled() && !(columnFilter.getInclude().isEmpty() && columnFilter.getExclude().isEmpty())) {
             columns = columns.stream()
@@ -799,9 +810,17 @@ public class CopyDb {
                 rs.next();
                 total = rs.getLong(1);
                 totalRows += total;
-                totalColumns += total * converters.size();
+                totalDatums += total * converters.size();
+                for (var i = 0; i < converters.size(); i++) {
+                    var converter = converters.get(i);
+                    var stat = typeStats.computeIfAbsent(new CopyTypeKey(converter.getSource().getType(), converter.getTarget().getType()),
+                        CopyTypeStat::new);
+                    stat.incrementOccurs();
+                    stat.incrementRows(total);
+                }
             }
 
+            long start = System.currentTimeMillis();
             var rs = select.executeQuery();
             int rowsInBatch = 0;
             long row = 0;
@@ -830,6 +849,10 @@ public class CopyDb {
                     targetDb.commit();
                 }
             }
+
+            long end = System.currentTimeMillis();
+            double rowsPerSec = total / ((end - start) / 1000.0);
+            LOG.info("Loaded {}: {} rows, {} rows/s", targetTable.getName(), total, String.format("%.2f", rowsPerSec));
         } catch (SQLException e) {
             throw new DatabaseException(e);
         }
@@ -902,6 +925,110 @@ public class CopyDb {
             liquibase.update(tag, new Contexts(contexts), new LabelExpression(labelFilter));
             tableFilter.getExclude().addAll(Arrays.asList("DATABASECHANGELOG", "DATABASECHANGELOGLOCK"));
         });
+    }
+
+    public static class CopyTypeKey implements Comparable<CopyTypeKey> {
+        private final DataType from;
+        private final DataType to;
+        private final String key;
+        private final int hashCode;
+
+        public CopyTypeKey(DataType from, DataType to) {
+            this.from = from;
+            this.to = to;
+            if (from.getColumnSize() != null && to.getColumnSize() != null) {
+                String fromStr = from.toString().replaceFirst(" (CHAR|BYTE)\\)$", ")");
+                String toStr = to.toString().replaceFirst(" (CHAR|BYTE)\\)$", ")");;
+                if (fromStr.equalsIgnoreCase(toStr)) {
+                    this.key = from.getTypeName() + "(*) -> " + to.getTypeName() + "(*)";
+                } else {
+                    this.key = sanitizeDataType(fromStr) + " -> " + sanitizeDataType(toStr);
+                }
+            } else {
+                this.key = sanitizeDataType(from) + " -> " + sanitizeDataType(to);
+            }
+            this.hashCode = this.key.hashCode();
+        }
+
+        private static String sanitizeDataType(DataType t) {
+            String s = t.toString();
+            if (t.getColumnSize() == null) {
+                return s;
+            }
+
+            return sanitizeDataType(s);
+        }
+
+        private static String sanitizeDataType(String s) {
+            // TIMESTAMP(n)(m) -> TIMESTAMP(n)
+            return s.replaceFirst("\\)\\(\\d+\\)$", ")");
+        }
+
+        public DataType getFrom() {
+            return from;
+        }
+
+        public DataType getTo() {
+            return to;
+        }
+
+        @Override
+        public int compareTo(CopyTypeKey o) {
+            return key.compareTo(o.key);
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (o == null || getClass() != o.getClass()) return false;
+            CopyTypeKey that = (CopyTypeKey) o;
+            return Objects.equals(key, that.key);
+        }
+
+        @Override
+        public int hashCode() {
+            return hashCode;
+        }
+
+        @Override
+        public String toString() {
+            return key;
+        }
+    }
+
+    public static class CopyTypeStat {
+        private final CopyTypeKey key;
+        private long occurs;
+        private long rows;
+
+        public CopyTypeStat(CopyTypeKey key) {
+            this.key = key;
+        }
+
+        public CopyTypeKey getKey() {
+            return key;
+        }
+
+        public long getOccurs() {
+            return occurs;
+        }
+
+        public long getRows() {
+            return rows;
+        }
+
+        public void incrementOccurs() {
+            occurs += 1;
+        }
+
+        public void incrementRows(long n) {
+            rows += n;
+        }
+
+        @Override
+        public String toString() {
+            return key + ": " + occurs + " occurrences, " + rows + " rows";
+        }
+
     }
 
 }

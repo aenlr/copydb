@@ -103,6 +103,17 @@ public interface DatabaseSupport {
     }
 
     /**
+     * Create default and liquibase schemas.
+     * This is mostly for database types that allow users to create schemas.
+     * No exception is thrown if the database does not support it or if the user
+     * lacks permission to create schemas.
+     * @param db target database
+     * @throws LiquibaseException
+     */
+    default void createDefaultSchemas(Database db) throws LiquibaseException {
+    }
+
+    /**
      * Drop all database objects.
      * @param db target database
      * @throws LiquibaseException

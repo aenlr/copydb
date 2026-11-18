@@ -10,6 +10,7 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Properties;
@@ -640,12 +641,30 @@ public class CopyDbCli {
             copier.copy();
             long end = System.currentTimeMillis();
             double sec = (end - start) / 1000.0;
+            List<Map.Entry<String, Object>> statRows = new ArrayList<>();
+            statRows.add(Map.entry("Tables", copier.getTargetTables().size()));
+            statRows.add(Map.entry("Rows", copier.getTotalRows()));
+
             double rowsPerSec = copier.getTotalRows() / sec;
-            double colsPerSec = copier.getTotalColumns() / sec;
-            CopyDb.LOG.info("Finished: {}, ~{}, ~{}",
-                String.format("%.2f s", sec),
-                String.format("%.2f rows/s", rowsPerSec),
-                String.format("%.2f columns/s", colsPerSec));
+            statRows.add(Map.entry("Rows/second", String.format("%.2f", rowsPerSec)));
+
+            double datumsPerSec = copier.getTotalDatums() / sec;
+            statRows.add(Map.entry("Datums", copier.getTotalDatums()));
+            statRows.add(Map.entry("Datums/second", String.format("%.2f", datumsPerSec)));
+
+            for (var stat : copier.getTypeStats().values()) {
+                statRows.add(Map.entry(stat.getKey().toString(), stat.getOccurs() + "/" + stat.getRows()));
+            }
+            int maxWidth = statRows.stream().mapToInt(e -> e.getKey().length()).max().orElse(0);
+            var sb = new StringBuilder();
+            String format = "%-" + maxWidth + "s : %s";
+            for (var row : statRows) {
+                if (!sb.isEmpty()) {
+                    sb.append('\n');
+                }
+                sb.append(String.format(format, row.getKey(), row.getValue()));
+            }
+            CopyDb.LOG.info("Finished: {}\n{}",String.format("%.2f s", sec), sb);
         } catch (CliException e) {
             System.err.println("copydb: " + e.getMessage());
             if (e.showHelp) {

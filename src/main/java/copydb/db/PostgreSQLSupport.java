@@ -113,16 +113,13 @@ public final class PostgreSQLSupport extends GenericDatabaseSupport {
             PGobject pgobj = new PGobject();
             pgobj.setType(target.getType().getTypeName());
 
-            if (val instanceof String s) {
-                pgobj.setValue(s);
-            } else if (val instanceof Clob clob) {
-                pgobj.setValue(Converters.extractString(clob));
-            } else if (val instanceof byte[] b) {
-                pgobj.setValue(new String(b, StandardCharsets.UTF_8));
-            } else if (val instanceof Blob blob) {
-                pgobj.setValue(new String(Converters.extractBytes(blob), StandardCharsets.UTF_8));
-            } else {
-                throw new IllegalArgumentException("Cannot convert " + val + " to JSON [" + target + "]");
+            switch (val) {
+                case String s -> pgobj.setValue(s);
+                case Clob clob -> pgobj.setValue(Converters.extractString(clob));
+                case byte[] b -> pgobj.setValue(new String(b, StandardCharsets.UTF_8));
+                case Blob blob -> pgobj.setValue(new String(Converters.extractBytes(blob), StandardCharsets.UTF_8));
+                case null, default ->
+                    throw new IllegalArgumentException("Cannot convert " + val + " to JSON [" + target + "]");
             }
 
             return pgobj;
@@ -134,6 +131,22 @@ public final class PostgreSQLSupport extends GenericDatabaseSupport {
     @Override
     public DdlCommitMode getDdlCommitMode() {
         return DdlCommitMode.TRANSACTIONAL;
+    }
+
+    @Override
+    public void createDefaultSchemas(Database db) throws LiquibaseException {
+        if (db.getDefaultSchema() == null && db.getLiquibaseSchemaName() == null) {
+            return;
+        }
+
+        if (hasDatabasePrivilege(db, "create") || isSuperUser(db)) {
+            if (db.getDefaultSchemaName() != null) {
+                executeSql(db, "create schema if not exists " + db.getDefaultSchemaName());
+            }
+            if (db.getLiquibaseSchemaName() != null && !db.getLiquibaseSchemaName().equals(db.getDefaultSchemaName())) {
+                executeSql(db, "create schema if not exists " + db.getLiquibaseSchemaName());
+            }
+        }
     }
 
     @Override
