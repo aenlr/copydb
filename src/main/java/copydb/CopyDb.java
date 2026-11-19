@@ -87,6 +87,7 @@ public class CopyDb {
     private boolean dropFirst;
     private boolean truncate;
     private boolean disableForeignKeys = true;
+    private boolean ddlOnly = false;
     private boolean orderByPrimaryKey;
     private boolean logSql = true;
     private int batchSize = 0;
@@ -136,6 +137,7 @@ public class CopyDb {
         batchSize = parseInt(config.getProperty("batch-size"), batchSize);
         truncate = parseBoolean(config.getProperty("truncate"), truncate);
         dropFirst = parseBoolean(config.getProperty("drop-first"), dropFirst);
+        ddlOnly = parseBoolean(config.getProperty("ddl-only"), ddlOnly);
         disableForeignKeys = parseBoolean(config.getProperty("disable-foreign-keys"), disableForeignKeys);
         disableTriggerFilter.load(config, "disable-triggers.");
         tableFilter.load(config, "tables.");
@@ -211,6 +213,10 @@ public class CopyDb {
 
     public ObjectFilter getSequences() {
         return sequenceFilter;
+    }
+
+    public boolean isDdlOnly() {
+        return ddlOnly;
     }
 
     public boolean isDropFirst() {
@@ -320,6 +326,8 @@ public class CopyDb {
         }
         if (properties.getLiquibaseSchema() != null) {
             db.setLiquibaseSchemaName(properties.getLiquibaseSchema());
+        } else if (properties.getSchema() != null) {
+            db.setLiquibaseSchemaName(properties.getSchema());
         }
         return db;
     }
@@ -375,7 +383,7 @@ public class CopyDb {
                     copySequences();
                 }
 
-                if (tableFilter.isEnabled()) {
+                if (!ddlOnly && tableFilter.isEnabled()) {
                     copyTables();
                 }
 

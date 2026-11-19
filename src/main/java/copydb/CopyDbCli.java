@@ -227,8 +227,9 @@ public class CopyDbCli {
               --label-filter=EXPR     liquibase label filter [COPYDB_LABEL_FILTER]
               --labels=EXPR
               --tag=TAG               tag to update to [COPYDB_TAG]
-              --drop-first            drop ALL target database objects [COPYDB_DROP_FIRST]
-
+              --drop-first            drop ALL target schema objects [COPYDB_DROP_FIRST]
+              --ddl-only              perform DDL operations but do not copy table data
+                                      [COPYDB_DDL_ONLY]
             Tables:
               -t, --include=T1[,T2..] copy specific tables [COPYDB_TABLES_INCLUDE]
               -x, --exclude=T1[,T2..] exclude tables [COPYDB_TABLES_EXCLUDE]
@@ -256,10 +257,13 @@ public class CopyDbCli {
             - $COPYDB_CONFIG (or system property copydb.config)
             - $COPYDB_SECRETS (or system property copydb.secrets)
             - $HOME/.config/copydb/copydb.properties
-            - $HOME/.config/copydb/secrets.properties
-            - $APPDATA/copydb/copydb.properties (windows)
-            - $APPDATA/copydb/secrets.properties (windows)
-            """);
+            - $HOME/.config/copydb/secrets.properties""");
+
+            if (System.getProperty("os.name").toLowerCase().contains("win")) {
+                os.println("""
+                    - %APPDATA%\\copydb\\copydb.properties
+                    - %APPDATA%\\copydb\\secrets.properties""");
+            }
     }
 
     private static List<String> parseColumnList(String s) {
@@ -471,7 +475,7 @@ public class CopyDbCli {
                     commandLineArgs.put("sequences.enabled", "true");
                 } else if (parser.flag("copy-sequences") || parser.flag("copy-seq")) {
                     commandLineArgs.put("sequences.enabled", Boolean.toString(parser.flag));
-                } else if (parser.flag("truncate") || parser.flag("drop-first")) {
+                } else if (parser.flag("truncate") || parser.flag("drop-first") || parser.flag("ddl-only")) {
                     commandLineArgs.put(parser.opt, Boolean.toString(parser.flag));
                 } else if (parser.arg("batch-size") || parser.arg("batch")) {
                     commandLineArgs.put("batch-size", parser.val);
@@ -641,30 +645,34 @@ public class CopyDbCli {
             copier.copy();
             long end = System.currentTimeMillis();
             double sec = (end - start) / 1000.0;
-            List<Map.Entry<String, Object>> statRows = new ArrayList<>();
-            statRows.add(Map.entry("Tables", copier.getTargetTables().size()));
-            statRows.add(Map.entry("Rows", copier.getTotalRows()));
-
-            double rowsPerSec = copier.getTotalRows() / sec;
-            statRows.add(Map.entry("Rows/second", String.format("%.2f", rowsPerSec)));
-
-            double datumsPerSec = copier.getTotalDatums() / sec;
-            statRows.add(Map.entry("Datums", copier.getTotalDatums()));
-            statRows.add(Map.entry("Datums/second", String.format("%.2f", datumsPerSec)));
-
-            for (var stat : copier.getTypeStats().values()) {
-                statRows.add(Map.entry(stat.getKey().toString(), stat.getOccurs() + "/" + stat.getRows()));
-            }
-            int maxWidth = statRows.stream().mapToInt(e -> e.getKey().length()).max().orElse(0);
             var sb = new StringBuilder();
-            String format = "%-" + maxWidth + "s : %s";
-            for (var row : statRows) {
-                if (!sb.isEmpty()) {
-                    sb.append('\n');
+
+            if (!copier.isDdlOnly()) {
+                sb.append('\n');
+                List<Map.Entry<String, Object>> statRows = new ArrayList<>();
+                statRows.add(Map.entry("Tables", copier.getTargetTables().size()));
+                statRows.add(Map.entry("Rows", copier.getTotalRows()));
+
+                double rowsPerSec = copier.getTotalRows() / sec;
+                statRows.add(Map.entry("Rows/second", String.format("%.2f", rowsPerSec)));
+
+                double datumsPerSec = copier.getTotalDatums() / sec;
+                statRows.add(Map.entry("Datums", copier.getTotalDatums()));
+                statRows.add(Map.entry("Datums/second", String.format("%.2f", datumsPerSec)));
+
+                for (var stat : copier.getTypeStats().values()) {
+                    statRows.add(Map.entry(stat.getKey().toString(), stat.getOccurs() + "/" + stat.getRows()));
                 }
-                sb.append(String.format(format, row.getKey(), row.getValue()));
+                int maxWidth = statRows.stream().mapToInt(e -> e.getKey().length()).max().orElse(0);
+                String format = "%-" + maxWidth + "s : %s";
+                for (var row : statRows) {
+                    if (!sb.isEmpty()) {
+                        sb.append('\n');
+                    }
+                    sb.append(String.format(format, row.getKey(), row.getValue()));
+                }
             }
-            CopyDb.LOG.info("Finished: {}\n{}",String.format("%.2f s", sec), sb);
+            CopyDb.LOG.info("Finished: {}{}", String.format("%.2f s", sec), sb);
         } catch (CliException e) {
             System.err.println("copydb: " + e.getMessage());
             if (e.showHelp) {
