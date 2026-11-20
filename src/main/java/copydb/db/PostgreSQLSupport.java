@@ -52,7 +52,9 @@ public final class PostgreSQLSupport extends GenericDatabaseSupport {
         entry("bigserial", NumberWriter.INSTANCE),
         entry("int2", NumberWriter.INSTANCE),
         entry("int4", NumberWriter.INSTANCE),
-        entry("int8", NumberWriter.INSTANCE)
+        entry("int8", NumberWriter.INSTANCE),
+        entry("oid", BlobWriter.INSTANCE),
+        entry("lo", BlobWriter.INSTANCE)
     );
 
     @Override
@@ -72,10 +74,6 @@ public final class PostgreSQLSupport extends GenericDatabaseSupport {
         var writer = WRITERS.get(targetType);
         if (writer != null) {
             return writer;
-        }
-
-        if ("oid".equals(targetType) || "blob".equals(targetType) || "lo".equals(targetType)) {
-            return new BlobWriter();
         }
 
         return super.writerFor(target, targetColumn);
@@ -144,11 +142,12 @@ public final class PostgreSQLSupport extends GenericDatabaseSupport {
 
     @Override
     public void dropAll(Database db) throws LiquibaseException {
-        if (db.getDefaultSchema() != null) {
+        var schema = db.getDefaultSchema();
+        if (schema != null) {
             if (hasDatabasePrivilege(db, "create") || isSuperUser(db)) {
-                executeSql(db, "drop schema if exists " + db.getDefaultSchemaName() + " cascade");
+                executeSql(db, "drop schema if exists " + schema + " cascade");
                 vacuumLo(db);
-                executeSql(db, "create schema " + db.getDefaultSchemaName());
+                executeSql(db, "create schema " + schema);
                 return;
             }
         }
@@ -166,7 +165,11 @@ public final class PostgreSQLSupport extends GenericDatabaseSupport {
             .map(col -> orphanedLoPredicate(db, col, "l.oid") + '\n')
             .collect(Collectors.joining("   AND "));
         if (predicates.isEmpty()) {
-            executeSql(db, "SELECT lo_unlink(oid) FROM pg_largeobject_metadata");
+            executeSql(db, """
+                SELECT lo_unlink(lom.oid)
+                  FROM pg_largeobject_metadata lom
+                  JOIN pg_roles r on r.oid = lomowner
+                 WHERE r.rolname = current_role""");
         } else {
             executeSql(db, """
                 SELECT lo_unlink(l.oid)
@@ -210,8 +213,9 @@ public final class PostgreSQLSupport extends GenericDatabaseSupport {
         var sql = """
             SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME
             FROM INFORMATION_SCHEMA.COLUMNS
-            WHERE TABLE_SCHEMA <> 'pg_catalog' AND DATA_TYPE IN ('oid', 'lo')
-            ORDER BY TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME""";
+            WHERE TABLE_SCHEMA = '%s' AND DATA_TYPE IN ('oid', 'lo')
+            ORDER BY TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME""".formatted(
+                db.escapeStringForDatabase(db.getDefaultSchemaName()));
         List<Map<String, String>> rows = queryRows(db, "Querying large object columns", sql);
         return rows.stream()
             .map(r -> new Column(Table.class, db.getDefaultCatalogName(),
@@ -223,7 +227,7 @@ public final class PostgreSQLSupport extends GenericDatabaseSupport {
         var sql = "select has_database_privilege(current_database(), '"
             + db.escapeStringForDatabase(privilege)
             + "')";
-        return queryForObject(db, "Query database privilege", sql, Boolean.class).orElse(false);
+        return querySingle(db, "Query database privilege", sql, Boolean.class).orElse(false);
     }
 
     private boolean hasColumnPrivilege(Database db, String table, String column, String privilege) throws LiquibaseException {
@@ -234,7 +238,7 @@ public final class PostgreSQLSupport extends GenericDatabaseSupport {
             + "', '"
             + db.escapeStringForDatabase(privilege)
             + "')";
-        return queryForObject(db, "Query column privilege", sql, Boolean.class).orElse(false);
+        return querySingle(db, "Query column privilege", sql, Boolean.class).orElse(false);
     }
 
     private Map<String, ?> queryPgRoles(Database db) throws LiquibaseException {

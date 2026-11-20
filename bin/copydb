@@ -11,8 +11,7 @@ if [ -z "$JAVA" ]; then
 fi
 
 if [ -d "$BASEDIR/target" ]; then
-    jar=$(echo "$BASEDIR/target"/copydb-*.jar)
-    CLASSPATH="$jar:$BASEDIR/target/lib/*"
+    CLASSPATH="$BASEDIR/target/classes:$BASEDIR/target/lib/*"
 else
     CLASSPATH="$BASEDIR/lib/*"
 fi

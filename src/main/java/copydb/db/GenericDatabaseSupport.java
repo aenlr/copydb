@@ -357,10 +357,11 @@ public class GenericDatabaseSupport implements DatabaseSupport {
         return stmt;
     }
 
-    protected <T> Optional<T> queryForObject(Database db,
-                                             String comment,
-                                             String query,
-                                             Class<T> clazz) throws LiquibaseException {
+    @Override
+    public <T> Optional<T> querySingle(Database db,
+                                       String comment,
+                                       String query,
+                                       Class<T> clazz) throws LiquibaseException {
         var conn = (JdbcConnection) db.getConnection();
         var executor = Scope.getCurrentScope().getSingleton(ExecutorService.class).getExecutor("jdbc", db);
         executor.comment(comment);
@@ -370,6 +371,7 @@ public class GenericDatabaseSupport implements DatabaseSupport {
             @SuppressWarnings("deprecation")
             var sql = new RawSqlStatement(query);
             var result = executor.queryForObject(sql, clazz);
+            conn.rollback(savepoint);
             return Optional.ofNullable(result);
         } catch (Exception e) {
             try {
@@ -385,10 +387,11 @@ public class GenericDatabaseSupport implements DatabaseSupport {
         }
     }
 
-    protected <T> List<T> queryColumn(Database db,
-                                      String comment,
-                                      String query,
-                                      Class<T> type) throws LiquibaseException {
+    @Override
+    public <T> List<T> queryColumn(Database db,
+                                   String comment,
+                                   String query,
+                                   Class<T> type) throws LiquibaseException {
         var conn = (JdbcConnection) db.getConnection();
         var executor = Scope.getCurrentScope().getSingleton(ExecutorService.class).getExecutor("jdbc", db);
         executor.comment(comment);
@@ -399,7 +402,7 @@ public class GenericDatabaseSupport implements DatabaseSupport {
             var sql = new RawSqlStatement(query);
             @SuppressWarnings("unchecked")
             var result = (List<T>) executor.queryForList(sql, type);
-            conn.releaseSavepoint(savepoint);
+            conn.rollback(savepoint);
             return result;
         } catch (Exception e) {
             try {
@@ -415,9 +418,10 @@ public class GenericDatabaseSupport implements DatabaseSupport {
         }
     }
 
-    protected <T> List<Map<String, T>> queryRows(Database db,
-                                                 String comment,
-                                                 String query) throws LiquibaseException {
+    @Override
+    public <T> List<Map<String, T>> queryRows(Database db,
+                                              String comment,
+                                              String query) throws LiquibaseException {
         var conn = (JdbcConnection) db.getConnection();
         var executor = Scope.getCurrentScope().getSingleton(ExecutorService.class).getExecutor("jdbc", db);
         executor.comment(comment);
@@ -428,7 +432,7 @@ public class GenericDatabaseSupport implements DatabaseSupport {
             var sql = new RawSqlStatement(query);
             @SuppressWarnings("unchecked")
             var result = (List<Map<String, T>>) (List<?>) executor.queryForList(sql);
-            conn.releaseSavepoint(savepoint);
+            conn.rollback(savepoint);
             return result;
         } catch (Exception e) {
             try {

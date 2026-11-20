@@ -1,6 +1,8 @@
 package copydb;
 
+import copydb.util.Stopwatch;
 import org.slf4j.bridge.SLF4JBridgeHandler;
+import org.slf4j.simple.SimpleLogger;
 
 import java.io.File;
 import java.io.IOException;
@@ -380,6 +382,12 @@ public class CopyDbCli {
                 } else if (parser.flag("version")) {
                     System.out.println(getVersion());
                     return;
+                } else if (parser.arg("log-level")) {
+                    System.setProperty(SimpleLogger.DEFAULT_LOG_LEVEL_KEY, parser.val);
+                } else if (parser.arg("log-file")) {
+                    System.setProperty(SimpleLogger.LOG_FILE_KEY, parser.val);
+                } else if (parser.flag("log-sql")) {
+                    commandLineArgs.put("logging.sql", "true");
                 } else if (parser.arg("source") || parser.arg("source-url")) {
                     commandLineArgs.put("source.url", parser.val);
                 } else if (parser.arg("target") || parser.arg("target-url")) {
@@ -641,10 +649,10 @@ public class CopyDbCli {
                 }
             }
 
-            long start = System.currentTimeMillis();
+            final var stopwatch = new Stopwatch();
             copier.copy();
-            long end = System.currentTimeMillis();
-            double sec = (end - start) / 1000.0;
+            stopwatch.stop();
+            double sec = stopwatch.toSeconds();
             var sb = new StringBuilder();
 
             if (!copier.isDdlOnly()) {
@@ -666,13 +674,11 @@ public class CopyDbCli {
                 int maxWidth = statRows.stream().mapToInt(e -> e.getKey().length()).max().orElse(0);
                 String format = "%-" + maxWidth + "s : %s";
                 for (var row : statRows) {
-                    if (!sb.isEmpty()) {
-                        sb.append('\n');
-                    }
                     sb.append(String.format(format, row.getKey(), row.getValue()));
+                    sb.append('\n');
                 }
             }
-            CopyDb.LOG.info("Finished: {}{}", String.format("%.2f s", sec), sb);
+            CopyDb.LOG.info("Finished: {} s{}", String.format("%.3f", sec), sb.toString().stripTrailing());
         } catch (CliException e) {
             System.err.println("copydb: " + e.getMessage());
             if (e.showHelp) {

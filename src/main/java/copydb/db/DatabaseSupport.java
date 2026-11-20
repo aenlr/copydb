@@ -17,7 +17,9 @@ import java.math.BigInteger;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 
 public interface DatabaseSupport {
 
@@ -50,6 +52,20 @@ public interface DatabaseSupport {
      * Enumerate triggers in database.
      */
     List<Trigger> getTriggers(Database db) throws LiquibaseException;
+
+    <T> Optional<T> querySingle(Database db,
+                                String comment,
+                                String query,
+                                Class<T> clazz) throws LiquibaseException;
+
+    <T> List<T> queryColumn(Database db,
+                            String comment,
+                            String query,
+                            Class<T> type) throws LiquibaseException;
+
+    <T> List<Map<String, T>> queryRows(Database db,
+                                       String comment,
+                                       String query) throws LiquibaseException;
 
     enum DdlCommitMode {
         /**

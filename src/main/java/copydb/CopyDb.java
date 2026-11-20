@@ -4,6 +4,7 @@ import copydb.convert.ColumnDescriptor;
 import copydb.convert.Converters;
 import copydb.db.DatabaseSupport;
 import copydb.db.Databases;
+import copydb.util.CopyTableProgress;
 import liquibase.CatalogAndSchema;
 import liquibase.Contexts;
 import liquibase.LabelExpression;
@@ -34,11 +35,17 @@ import liquibase.structure.core.ForeignKey;
 import liquibase.structure.core.PrimaryKey;
 import liquibase.structure.core.Sequence;
 import liquibase.structure.core.Table;
+import liquibase.ui.LoggerUIService;
+import org.jline.terminal.Terminal;
+import org.jline.terminal.TerminalBuilder;
+import org.jline.terminal.impl.DumbTerminal;
+import org.jline.utils.InfoCmp;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
+import java.math.BigInteger;
 import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URL;
@@ -82,6 +89,7 @@ public class CopyDb {
     private Database targetDb;
     private Database sourceDb;
     private DatabaseSupport targetSupport;
+    private DatabaseSupport sourceSupport;
     private DatabaseSnapshot sourceSnapshot;
     private DatabaseSnapshot targetSnapshot;
     private boolean dropFirst;
@@ -89,7 +97,7 @@ public class CopyDb {
     private boolean disableForeignKeys = true;
     private boolean ddlOnly = false;
     private boolean orderByPrimaryKey;
-    private boolean logSql = true;
+    private boolean logSql = false;
     private int batchSize = 0;
     private String tag;
     private String contexts;
@@ -103,10 +111,29 @@ public class CopyDb {
     private Map<CopyTypeKey, CopyTypeStat> typeStats = Map.of();
     private long totalRows;
     private long totalDatums;
+    private String flashback;
+    private final Terminal terminal;
+    private final boolean plainOutput;
 
     public CopyDb(JdbcProperties source, JdbcProperties target) {
         this.source = source;
         this.target = target;
+        Terminal term;
+        try {
+            term = TerminalBuilder.builder()
+                .system(true)
+                .build();
+        } catch (IOException e) {
+            try {
+                term = TerminalBuilder.builder()
+                    .dumb(true)
+                    .build();
+            } catch (IOException _ignored) {
+                throw new IllegalStateException(e);
+            }
+        }
+        this.terminal = term;
+        this.plainOutput = term instanceof DumbTerminal;
     }
 
     public CopyDb() {
@@ -304,7 +331,9 @@ public class CopyDb {
         }
 
         try {
-            Scope.child(sqlLogger(), this::doCopy);
+            Map<String, Object> attrs = Map.of(
+                Scope.Attr.ui.name(), new LoggerUIService());
+            Scope.child(sqlLogger(), attrs, this::doCopy);
         } catch (LiquibaseException | RuntimeException e) {
             throw e;
         } catch (IOException e) {
@@ -335,6 +364,7 @@ public class CopyDb {
     private void doCopy() throws Exception {
         try {
             sourceDb = openDatabase(source);
+            sourceSupport = Databases.getDatabase(sourceDb);
             targetDb = openDatabase(target);
             targetSupport = Databases.getDatabase(targetDb);
 
@@ -351,6 +381,16 @@ public class CopyDb {
             DatabaseSupport.Action enableTriggers = DatabaseSupport.Action.NOP;
             try {
                 runSql(sourceDb, source.getInitSql());
+                flashback = "";
+                if ("oracle".equals(sourceDb.getShortName())) {
+                    try {
+                        sourceSupport.querySingle(sourceDb, "Getting system change number", "SELECT current_scn FROM v$database", BigInteger.class)
+                            .ifPresent(scn -> flashback = " AS OF SCN " + scn);
+                    } catch (LiquibaseException e) {
+                        // IGNORED
+                    }
+                }
+
                 runSql(targetDb, target.getInitSql());
 
                 runSql(targetDb, initSql);
@@ -786,18 +826,17 @@ public class CopyDb {
         var converters = new ArrayList<ColumnDescriptor<?, ?>>(columns.size());
         StringBuilder sb = new StringBuilder()
             .append("TABLE ")
-            .append(targetDb.escapeTableName(null, null, targetTable.getName()))
-            .append('\n');
+            .append(targetDb.escapeTableName(null, null, targetTable.getName()));
         for (var targetColumn : columns) {
             var sourceColumn = sourceTable.getColumn(targetColumn.getName());
             var converter = Converters.converterFor(sourceDb, sourceColumn, targetDb, targetColumn);
-            sb.append("  ").append(converter).append('\n');
+            sb.append('\n').append("  ").append(converter);
             converters.add(converter);
         }
         LOG.debug(sb.toString());
 
         String qualifiedSourceTable = sourceDb.escapeTableName(null, null, sourceTable.getName());
-        String selectSql = "SELECT * FROM " + qualifiedSourceTable;
+        String selectSql = "SELECT * FROM " + qualifiedSourceTable + flashback;
         if (orderByPrimaryKey) {
             var pk = sourceTable.getPrimaryKey();
             if (pk != null) {
@@ -807,10 +846,10 @@ public class CopyDb {
 
         if (logSql) {
             SQL_LOG.info(selectSql);
-            SQL_LOG.info(insertSql);
+            SQL_LOG.info(insertSql.replaceFirst(" VALUES\\(.*$", ""));
         }
 
-        try (var count = sourceStmtFactory.create("SELECT COUNT(*) FROM " + qualifiedSourceTable);
+        try (var count = sourceStmtFactory.create("SELECT COUNT(*) FROM " + qualifiedSourceTable + flashback);
              var select = sourceStmtFactory.create(selectSql);
              var insert = targetStmtFactory.create(insertSql)) {
             long total;
@@ -828,41 +867,55 @@ public class CopyDb {
                 }
             }
 
-            long start = System.currentTimeMillis();
+            terminal.puts(InfoCmp.Capability.cursor_invisible);
+            var progress = new CopyTableProgress(targetTable.getName(), total);
+            if (!plainOutput) {
+                progress.print(terminal);
+            }
             var rs = select.executeQuery();
             int rowsInBatch = 0;
-            long row = 0;
             while (rs.next()) {
                 for (var i = 0; i < converters.size(); i++) {
                     var conv = converters.get(i);
                     conv.copy(rs, insert, i + 1);
                 }
 
-                row++;
+                progress.increment();
                 insert.addBatch();
                 if (++rowsInBatch == batchSize) {
                     rowsInBatch = 0;
-                    LOG.info("Loading {} {}/{} rows ({}%)", targetTable.getName(), row, total, 100 * row / total);
                     insert.executeBatch();
                     if (targetSupport.getDataCommitMode() == DatabaseSupport.DataCommitMode.BATCH) {
                         targetDb.commit();
                     }
+                    if (progress.percent() >= 100) {
+                        progress.stop();
+                    }
+                    progress.print(terminal);
+                } else if (!plainOutput && progress.shouldUpdate()) {
+                    progress.print(terminal);
                 }
             }
 
             if (rowsInBatch != 0) {
-                LOG.info("Loading {} {}/{} rows ({}%)", targetTable.getName(), row, total, 100 * row / total);
                 insert.executeBatch();
                 if (targetSupport.getDataCommitMode() == DatabaseSupport.DataCommitMode.BATCH) {
                     targetDb.commit();
                 }
             }
 
-            long end = System.currentTimeMillis();
-            double rowsPerSec = total / ((end - start) / 1000.0);
-            LOG.info("Loaded {}: {} rows, {} rows/s", targetTable.getName(), total, String.format("%.2f", rowsPerSec));
+             if (total == 0 || rowsInBatch != 0) {
+                 progress.stop();
+                 progress.print(terminal);
+             }
         } catch (SQLException e) {
             throw new DatabaseException(e);
+        } finally {
+            if (!plainOutput) {
+                terminal.puts(InfoCmp.Capability.cursor_visible);
+                terminal.writer().println();
+            }
+            terminal.flush();
         }
     }
 
@@ -905,6 +958,10 @@ public class CopyDb {
     }
 
     private ClassLoader createClassLoader(ClassLoader parent) {
+        if (classpath == null) {
+            return parent;
+        }
+
         final List<URL> urls = new ArrayList<>();
         for (String classpathEntry : classpath.split(File.pathSeparator)) {
             File f = new File(classpathEntry);

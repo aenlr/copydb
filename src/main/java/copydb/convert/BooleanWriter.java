@@ -22,7 +22,7 @@ public class BooleanWriter implements ColumnWriter<Boolean> {
             return b;
         }
 
-        throw new IllegalArgumentException("Cannot convert " + val + " to " + column);
+        throw new IllegalArgumentException("Cannot convert " + val + " to boolean " + column);
     }
 
     public static final BooleanWriter INSTANCE = new BooleanWriter();
