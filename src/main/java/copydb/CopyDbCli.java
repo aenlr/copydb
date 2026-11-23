@@ -390,6 +390,8 @@ public class CopyDbCli {
                     commandLineArgs.put("logging.sql", "true");
                 } else if (parser.arg("source") || parser.arg("source-url")) {
                     commandLineArgs.put("source.url", parser.val);
+                } else if (parser.flag("oracle-flashback")) {
+                    commandLineArgs.put("oracle.flashback", parser.flag);
                 } else if (parser.arg("target") || parser.arg("target-url")) {
                     commandLineArgs.put("target.url", parser.val);
                 } else if (parser.arg("source-user") || parser.arg("source-username")) {
@@ -499,6 +501,9 @@ public class CopyDbCli {
                     commandLineArgs.put("contexts", parser.val);
                 } else if (parser.arg("labels") || parser.arg("label")) {
                     commandLineArgs.put("label-filter", parser.val);
+                } else if (parser.arg("schema")) {
+                    commandLineArgs.put("source.schema", parser.val);
+                    commandLineArgs.put("target.schema", parser.val);
                 } else if (parser.arg("source-schema")) {
                     commandLineArgs.put("source.schema", parser.val);
                 } else if (parser.arg("target-schema")) {

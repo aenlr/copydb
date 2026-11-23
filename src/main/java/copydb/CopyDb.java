@@ -114,6 +114,7 @@ public class CopyDb {
     private String flashback;
     private final Terminal terminal;
     private final boolean plainOutput;
+    private boolean oracleFlashback;
 
     public CopyDb(JdbcProperties source, JdbcProperties target) {
         this.source = source;
@@ -159,6 +160,7 @@ public class CopyDb {
         labelFilter = config.getProperty("label-filter", labelFilter);
         classpath = config.getProperty("classpath", classpath);
         searchPath = config.getProperty("search-path", searchPath);
+        oracleFlashback = config.getBoolean("oracle.flashback", false);
 
         logSql = parseBoolean(config.getProperty("logging.sql"), logSql);
         batchSize = parseInt(config.getProperty("batch-size"), batchSize);
@@ -382,13 +384,9 @@ public class CopyDb {
             try {
                 runSql(sourceDb, source.getInitSql());
                 flashback = "";
-                if ("oracle".equals(sourceDb.getShortName())) {
-                    try {
-                        sourceSupport.querySingle(sourceDb, "Getting system change number", "SELECT current_scn FROM v$database", BigInteger.class)
-                            .ifPresent(scn -> flashback = " AS OF SCN " + scn);
-                    } catch (LiquibaseException e) {
-                        // IGNORED
-                    }
+                if (oracleFlashback && "oracle".equals(sourceDb.getShortName())) {
+                    sourceSupport.querySingle(sourceDb, "Getting system change number", "SELECT current_scn FROM v$database", BigInteger.class)
+                        .ifPresent(scn -> flashback = " AS OF SCN " + scn);
                 }
 
                 runSql(targetDb, target.getInitSql());
