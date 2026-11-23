@@ -126,7 +126,7 @@ public final class PostgreSQLSupport extends GenericDatabaseSupport {
 
     @Override
     public void createDefaultSchemas(Database db) throws LiquibaseException {
-        if (db.getDefaultSchema() == null && db.getLiquibaseSchemaName() == null) {
+        if (db.getDefaultSchemaName() == null && db.getLiquibaseSchemaName() == null) {
             return;
         }
 
@@ -142,7 +142,7 @@ public final class PostgreSQLSupport extends GenericDatabaseSupport {
 
     @Override
     public void dropAll(Database db) throws LiquibaseException {
-        var schema = db.getDefaultSchema();
+        var schema = db.getDefaultSchemaName();
         if (schema != null) {
             if (hasDatabasePrivilege(db, "create") || isSuperUser(db)) {
                 executeSql(db, "drop schema if exists " + schema + " cascade");
