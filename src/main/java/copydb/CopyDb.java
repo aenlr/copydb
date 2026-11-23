@@ -583,10 +583,10 @@ public class CopyDb {
         SqlStatement[] statements;
         if (sql.indexOf('\n') != -1) {
             statements = Arrays.stream(processMultiLineSQL(sql, !options.comments, options.split, options.delimiter))
-                .map(s -> new RawParameterizedSqlStatement(s, options.delimiter))
+                .map(RawParameterizedSqlStatement::new)
                 .toArray(SqlStatement[]::new);
         } else {
-            statements = new SqlStatement[]{new RawParameterizedSqlStatement(sql, options.delimiter)};
+            statements = new SqlStatement[]{new RawParameterizedSqlStatement(sql)};
         }
 
         if (options.ignoreErrors || options.commit > 0) {
