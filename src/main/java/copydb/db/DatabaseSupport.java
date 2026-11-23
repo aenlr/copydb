@@ -58,6 +58,11 @@ public interface DatabaseSupport {
                                 String query,
                                 Class<T> clazz) throws LiquibaseException;
 
+    <T> Optional<T> queryOptional(Database db,
+                                  String comment,
+                                  String query,
+                                  Class<T> clazz) throws LiquibaseException;
+
     <T> List<T> queryColumn(Database db,
                             String comment,
                             String query,

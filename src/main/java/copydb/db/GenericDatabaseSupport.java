@@ -388,6 +388,21 @@ public class GenericDatabaseSupport implements DatabaseSupport {
     }
 
     @Override
+    public <T> Optional<T> queryOptional(Database db,
+                                         String comment,
+                                         String query,
+                                         Class<T> type) throws LiquibaseException {
+        var result = queryColumn(db, comment, query, type);
+        if (result.isEmpty()) {
+            return Optional.empty();
+        }
+        if (result.size() > 1) {
+            throw new DatabaseException("Result set larger than one row");
+        }
+        return Optional.ofNullable(result.getFirst());
+    }
+
+    @Override
     public <T> List<T> queryColumn(Database db,
                                    String comment,
                                    String query,

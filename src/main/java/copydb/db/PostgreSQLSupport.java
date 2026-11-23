@@ -144,7 +144,7 @@ public final class PostgreSQLSupport extends GenericDatabaseSupport {
     public void dropAll(Database db) throws LiquibaseException {
         var schema = db.getDefaultSchemaName();
         if (schema != null) {
-            if (hasDatabasePrivilege(db, "create") || isSuperUser(db)) {
+            if (isSuperUser(db) || (hasDatabasePrivilege(db, "create") && isSchemaOwner(db, schema))) {
                 executeSql(db, "drop schema if exists " + schema + " cascade");
                 vacuumLo(db);
                 executeSql(db, "create schema " + schema);
@@ -228,6 +228,20 @@ public final class PostgreSQLSupport extends GenericDatabaseSupport {
             + db.escapeStringForDatabase(privilege)
             + "')";
         return querySingle(db, "Query database privilege", sql, Boolean.class).orElse(false);
+    }
+
+    private boolean hasSchemaPrivilege(Database db, String schema, String privilege) throws LiquibaseException {
+        var sql = "select has_schema_privilege('%s', '%s')"
+            .formatted(db.escapeStringForDatabase(schema), db.escapeStringForDatabase(privilege));
+        return querySingle(db, "Query schema privilege", sql, Boolean.class).orElse(false);
+    }
+
+    private boolean isSchemaOwner(Database db, String schema) throws LiquibaseException {
+        var sql = """
+            select true from information_schema.schemata
+            where schema_name = '%s'
+            and schema_owner = current_role""".formatted(db.escapeStringForDatabase(schema));
+        return queryOptional(db, "Query schema ownership", sql, Boolean.class).orElse(false);
     }
 
     private boolean hasColumnPrivilege(Database db, String table, String column, String privilege) throws LiquibaseException {
