@@ -391,7 +391,7 @@ public class CopyDbCli {
                 } else if (parser.arg("source") || parser.arg("source-url")) {
                     commandLineArgs.put("source.url", parser.val);
                 } else if (parser.flag("oracle-flashback")) {
-                    commandLineArgs.put("oracle.flashback", parser.flag);
+                    commandLineArgs.put("oracle.flashback", Boolean.toString(parser.flag));
                 } else if (parser.arg("target") || parser.arg("target-url")) {
                     commandLineArgs.put("target.url", parser.val);
                 } else if (parser.arg("source-user") || parser.arg("source-username")) {
